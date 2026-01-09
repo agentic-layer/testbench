@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "metrics": [
+    {
+      "type": "class",
+      "class_name": "AnswerAccuracy"
+    },
+    {
+      "type": "class",
+      "class_name": "ContextRecall"
+    }
+  ]
+}

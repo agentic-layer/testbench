@@ -5,3 +5,4 @@ resources:
   - setup-template.yaml
   - run-template.yaml
   - publish-template.yaml
+  - visualize-template.yaml

@@ -1,7 +1,5 @@
 FROM python:3.13-slim
 
-WORKDIR /app
-
 # Install runtime and build dependencies (git is needed for Gitpython, which is a dependency of Ragas)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \

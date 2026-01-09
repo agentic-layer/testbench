@@ -80,13 +80,14 @@ class E2ETestRunner:
         logger.info("✓ All scripts found")
         return True
 
-    def run_command(self, command: List[str], step_name: str) -> bool:
+    def run_command(self, command: List[str], step_name: str, env: dict = None) -> bool:
         """
         Run a command and handle output/errors.
 
         Args:
             command: List of command arguments
             step_name: Name of the step for logging
+            env: Optional environment variables to pass to the command
 
         Returns:
             True if successful, False otherwise
@@ -97,7 +98,7 @@ class E2ETestRunner:
         logger.info(f"{'=' * 60}\n")
 
         try:
-            result = subprocess.run(command, check=True, capture_output=True, text=True)  # nosec
+            result = subprocess.run(command, check=True, capture_output=True, text=True, env=env)  # nosec
 
             # Log stdout if present
             if result.stdout:
@@ -165,13 +166,20 @@ class E2ETestRunner:
 
     def run_publish(self) -> bool:
         """Run publish.py to publish metrics via OpenTelemetry OTLP."""
+        import os
+
+        # Set OTLP endpoint via environment variable
+        env = os.environ.copy()
+        env["OTEL_EXPORTER_OTLP_ENDPOINT"] = self.otlp_endpoint
+
         command = [
             "python3",
             str(self.publish_script),
             self.workflow_name,
-            self.otlp_endpoint,
+            "e2e-test-exec",  # execution_id
+            "1",  # execution_number
         ]
-        return self.run_command(command, "4. Publish - Push Metrics via OTLP")
+        return self.run_command(command, "4. Publish - Push Metrics via OTLP", env=env)
 
     def run_full_pipeline(self) -> bool:
         """Execute the complete E2E test pipeline."""

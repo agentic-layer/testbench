@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multi-turn-metrics-config
+  namespace: testkube
+  labels:
+    app: testworkflows
+    testkube.io/test-category: ragas-evaluation
+data:
+  metrics.yaml: |
+    version: "1.0"
+    metrics:
+      - type: class
+        class_name: ToolCallAccuracy
+
+      - type: class
+        class_name: AgentGoalAccuracyWithoutReference

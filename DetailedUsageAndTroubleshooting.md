@@ -164,7 +164,7 @@ Publishes evaluation metrics to an OpenTelemetry OTLP endpoint for monitoring.
 **Syntax:**
 
 ```shell
-python3 scripts/publish.py <workflow_name> <execution_id> <execution_number> [otlp_endpoint]
+OTEL_EXPORTER_OTLP_ENDPOINT=<endpoint_url> python3 scripts/publish.py <workflow_name> <execution_id> <execution_number>
 ```
 
 **Arguments:**
@@ -172,7 +172,10 @@ python3 scripts/publish.py <workflow_name> <execution_id> <execution_number> [ot
 - `workflow_name` (required): Name of the test workflow (used as metric label)
 - `execution_id` (required): Testkube execution ID for this workflow run
 - `execution_number` (required): Numeric execution number for this workflow run (used as X-axis in Grafana)
-- `otlp_endpoint` (optional): OTLP HTTP endpoint URL (default: `localhost:4318`)
+
+**Environment Variables:**
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` (optional): OTLP HTTP endpoint URL (default: `http://localhost:4318`)
 
 **Input:**
 

@@ -176,7 +176,8 @@ uv run python3 scripts/run.py "http://localhost:11010"
 uv run python3 scripts/evaluate.py gemini-2.5-flash-lite faithfulness answer_relevancy
 
 # 4. Publish metrics to OpenTelemetry (workflow_name, execution_id, execution_number)
-uv run python3 scripts/publish.py "my-agent-evaluation" "local-exec-001" 1
+# Set OTLP endpoint via environment variable (defaults to http://localhost:4318 if not set)
+OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" uv run python3 scripts/publish.py "my-agent-evaluation" "local-exec-001" 1
 ```
 
 ----

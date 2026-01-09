@@ -255,7 +255,7 @@ def test_creates_gauges_for_each_metric(monkeypatch):
     # Mock the provider
     class MockProvider:
         def force_flush(self):
-            pass
+            return True
 
         def shutdown(self):
             pass
@@ -278,13 +278,13 @@ def test_creates_gauges_for_each_metric(monkeypatch):
     monkeypatch.setattr("publish.metrics.get_meter", mock_get_meter)
     monkeypatch.setattr("publish.MeterProvider", mock_provider_init)
     monkeypatch.setattr("publish.OTLPMetricExporter", mock_exporter_init)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     create_and_push_metrics(
         evaluation_data=evaluation_data,
         workflow_name="test-workflow",
         execution_id="exec-test-123",
         execution_number=42,
-        otlp_endpoint="localhost:4318",
     )
 
     # Verify gauges created: 1 metric gauge + 1 token gauge + 1 cost gauge = 3
@@ -334,7 +334,7 @@ def test_sets_per_sample_gauge_values(monkeypatch):
     # Mock the provider
     class MockProvider:
         def force_flush(self):
-            pass
+            return True
 
         def shutdown(self):
             pass
@@ -357,13 +357,13 @@ def test_sets_per_sample_gauge_values(monkeypatch):
     monkeypatch.setattr("publish.metrics.get_meter", mock_get_meter)
     monkeypatch.setattr("publish.MeterProvider", mock_provider_init)
     monkeypatch.setattr("publish.OTLPMetricExporter", mock_exporter_init)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     create_and_push_metrics(
         evaluation_data=evaluation_data,
         workflow_name="test-workflow",
         execution_id="exec-test-123",
         execution_number=42,
-        otlp_endpoint="localhost:4318",
     )
 
     # Filter to faithfulness metric calls only (name attribute = "faithfulness")
@@ -423,6 +423,7 @@ def test_pushes_via_otlp(monkeypatch):
     class MockProvider:
         def force_flush(self):
             force_flush_calls.append(True)
+            return True
 
         def shutdown(self):
             shutdown_calls.append(True)
@@ -444,13 +445,13 @@ def test_pushes_via_otlp(monkeypatch):
     monkeypatch.setattr("publish.metrics.get_meter", mock_get_meter)
     monkeypatch.setattr("publish.MeterProvider", mock_provider_init)
     monkeypatch.setattr("publish.OTLPMetricExporter", mock_exporter_init)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     create_and_push_metrics(
         evaluation_data=evaluation_data,
         workflow_name="test-workflow",
         execution_id="exec-test-123",
         execution_number=42,
-        otlp_endpoint="localhost:4318",
     )
 
     # Verify OTLPMetricExporter was initialized with correct endpoint
@@ -473,12 +474,12 @@ def test_handles_push_error(monkeypatch):
     def mock_get_meter(*args, **kwargs):
         return _OtelMockMeter()
 
-    # Mock the provider to raise an exception on force_flush
+    # Mock the provider to return False on force_flush (indicating failure)
     shutdown_calls = []
 
     class MockProvider:
         def force_flush(self):
-            raise Exception("Connection refused")
+            return False
 
         def shutdown(self):
             shutdown_calls.append(True)
@@ -497,14 +498,14 @@ def test_handles_push_error(monkeypatch):
     monkeypatch.setattr("publish.metrics.get_meter", mock_get_meter)
     monkeypatch.setattr("publish.MeterProvider", mock_provider_init)
     monkeypatch.setattr("publish.OTLPMetricExporter", mock_exporter_init)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
-    with pytest.raises(Exception, match="Connection refused"):
+    with pytest.raises(RuntimeError, match="Failed to flush metrics"):
         create_and_push_metrics(
             evaluation_data=evaluation_data,
             workflow_name="test-workflow",
             execution_id="exec-test-123",
             execution_number=42,
-            otlp_endpoint="localhost:4318",
         )
 
     # Verify shutdown is still called in finally block
@@ -516,25 +517,24 @@ def test_publish_metrics_calls_create_and_push(evaluation_scores_file, monkeypat
     """Test that publish_metrics calls create_and_push_metrics"""
     create_push_calls = []
 
-    def mock_create_push(evaluation_data, workflow_name, execution_id, execution_number, otlp_endpoint):
+    def mock_create_push(evaluation_data, workflow_name, execution_id, execution_number):
         create_push_calls.append(
             {
                 "evaluation_data": evaluation_data,
                 "workflow_name": workflow_name,
                 "execution_id": execution_id,
                 "execution_number": execution_number,
-                "otlp_endpoint": otlp_endpoint,
             }
         )
 
     monkeypatch.setattr("publish.create_and_push_metrics", mock_create_push)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     publish_metrics(
         input_file=str(evaluation_scores_file),
         workflow_name="test-workflow",
         execution_id="exec-test-123",
         execution_number=42,
-        otlp_endpoint="localhost:4318",
     )
 
     # Verify create_and_push_metrics was called
@@ -545,7 +545,6 @@ def test_publish_metrics_calls_create_and_push(evaluation_scores_file, monkeypat
     assert create_push_calls[0]["workflow_name"] == "test-workflow"
     assert create_push_calls[0]["execution_id"] == "exec-test-123"
     assert create_push_calls[0]["execution_number"] == 42
-    assert create_push_calls[0]["otlp_endpoint"] == "localhost:4318"
 
 
 def test_publish_metrics_with_empty_results(temp_dir, monkeypatch):
@@ -564,17 +563,17 @@ def test_publish_metrics_with_empty_results(temp_dir, monkeypatch):
 
     create_push_calls = []
 
-    def mock_create_push(evaluation_data, workflow_name, execution_id, execution_number, otlp_endpoint):
+    def mock_create_push(evaluation_data, workflow_name, execution_id, execution_number):
         create_push_calls.append(True)
 
     monkeypatch.setattr("publish.create_and_push_metrics", mock_create_push)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     publish_metrics(
         input_file=str(empty_file),
         workflow_name="test-workflow",
         execution_id="exec-test-123",
         execution_number=42,
-        otlp_endpoint="localhost:4318",
     )
 
     # Verify create_and_push_metrics was NOT called
@@ -604,7 +603,7 @@ def test_publish_realistic_scores(realistic_scores_file, monkeypatch):
     # Mock the provider
     class MockProvider:
         def force_flush(self):
-            pass
+            return True
 
         def shutdown(self):
             pass
@@ -630,13 +629,13 @@ def test_publish_realistic_scores(realistic_scores_file, monkeypatch):
     monkeypatch.setattr("publish.metrics.get_meter", mock_get_meter)
     monkeypatch.setattr("publish.MeterProvider", mock_provider_init)
     monkeypatch.setattr("publish.OTLPMetricExporter", mock_exporter_init)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     publish_metrics(
         input_file=str(realistic_scores_file),
         workflow_name="weather-assistant-test",
         execution_id="exec-weather-456",
         execution_number=42,
-        otlp_endpoint="localhost:4318",
     )
 
     # Verify OTLPMetricExporter was called

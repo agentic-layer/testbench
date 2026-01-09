@@ -40,7 +40,6 @@ k8s_yaml(kustomize('deploy/local'))
 k8s_resource('ai-gateway-litellm', port_forwards=['11001:4000'])
 k8s_resource('weather-agent', port_forwards='11010:8000', labels=['agents'], resource_deps=['agent-runtime'])
 k8s_resource('lgtm', port_forwards=['11000:3000', '4318:4318'])
-k8s_resource('data-server', port_forwards='11020:8000')
 
 # Declare Testkube resources
 k8s_kind(
@@ -52,4 +51,5 @@ k8s_resource('ragas-evaluate-template', resource_deps=['testkube'])
 k8s_resource('ragas-publish-template', resource_deps=['testkube'])
 k8s_resource('ragas-run-template', resource_deps=['testkube'])
 k8s_resource('ragas-setup-template', resource_deps=['testkube'])
-k8s_resource('ragas-evaluation-workflow', resource_deps=['testkube'])
+k8s_resource('ragas-visualize-template', resource_deps=['testkube'])
+k8s_resource('multi-turn-workflow', resource_deps=['testkube'])

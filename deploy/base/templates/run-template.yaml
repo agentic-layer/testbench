@@ -13,14 +13,13 @@ spec:
     agentUrl:
       type: string
       description: "URL to the agent endpoint (A2A protocol)"
-    image:
-      type: string
-      description: "Docker image to use for the run step"
-      default: "ghcr.io/agentic-layer/testbench/testworkflows:latest"
 
   # Steps to execute
   steps:
-    - name: run-agent-queries
+    - name: run
+      artifacts:
+        paths:
+          - "data/experiments/ragas_experiment.jsonl"
       run:
         args:
           - run.py

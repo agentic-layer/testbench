@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 from dataclasses import dataclass
 from logging import Logger
 from typing import Any, TypeGuard
@@ -60,19 +61,23 @@ def _get_user_input_truncated(user_input: str, max_length: int = 50) -> str:
 
 
 def create_and_push_metrics(
-    evaluation_data: EvaluationData, workflow_name: str, execution_id: str, execution_number: int, otlp_endpoint: str
+    evaluation_data: EvaluationData, workflow_name: str, execution_id: str, execution_number: int
 ) -> None:
     """
     Create OpenTelemetry metrics for evaluation results and push via OTLP.
 
     Creates per-sample gauges for each metric, plus token usage and cost gauges.
 
+    The OTLP endpoint is read from the OTEL_EXPORTER_OTLP_ENDPOINT environment variable,
+    with a default of 'http://localhost:4318' if not set.
+
     Args:
         evaluation_data: Container with individual results, token counts, and cost
         workflow_name: Name of the test workflow (used as label to distinguish workflows)
         execution_id: Testkube execution ID for this workflow run
-        otlp_endpoint: URL of the OTLP endpoint (e.g., 'http://localhost:4318')
+        execution_number: Number of the execution for the current workflow
     """
+    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
     if not otlp_endpoint.startswith("http://") and not otlp_endpoint.startswith("https://"):
         otlp_endpoint = f"http://{otlp_endpoint}"
 
@@ -173,8 +178,14 @@ def create_and_push_metrics(
             f"testbench_evaluation_cost{{workflow_name={workflow_name}, execution_id={execution_id}, execution_number={execution_number}}} = {evaluation_data.total_cost}"
         )
 
-        provider.force_flush()
-        logger.info("Metrics successfully pushed via OTLP")
+        # force_flush() returns True if successful, False otherwise
+        flush_success = provider.force_flush()
+        if flush_success:
+            logger.info("Metrics successfully pushed via OTLP")
+        else:
+            error_msg = f"Failed to flush metrics to OTLP endpoint at {otlp_endpoint}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
     except Exception as e:
         logger.error(f"Error pushing metrics via OTLP: {e}")
         raise
@@ -182,18 +193,18 @@ def create_and_push_metrics(
         provider.shutdown()
 
 
-def publish_metrics(
-    input_file: str, workflow_name: str, execution_id: str, execution_number: int, otlp_endpoint: str
-) -> None:
+def publish_metrics(input_file: str, workflow_name: str, execution_id: str, execution_number: int) -> None:
     """
     Publish evaluation metrics via OpenTelemetry OTLP.
+
+    The OTLP endpoint is read from the OTEL_EXPORTER_OTLP_ENDPOINT environment variable,
+    with a default of 'http://localhost:4318' if not set.
 
     Args:
         input_file: Path to the evaluation scores JSON file
         workflow_name: Name of the test workflow (e.g., 'weather-assistant-test').
         execution_id: Testkube execution ID for this workflow run.
         execution_number: Number of the execution for the current workflow (e.g. 3)
-        otlp_endpoint: URL of the OTLP endpoint (e.g., 'http://localhost:4318').
     """
     logger.info(f"Loading evaluation data from {input_file}...")
     evaluation_data = load_evaluation_data(input_file)
@@ -204,21 +215,24 @@ def publish_metrics(
 
     logger.info(f"Publishing metrics for {len(evaluation_data.individual_results)} samples...")
     logger.info(f"Workflow: {workflow_name}, Execution: {execution_id}")
-    create_and_push_metrics(evaluation_data, workflow_name, execution_id, execution_number, otlp_endpoint)
+    create_and_push_metrics(evaluation_data, workflow_name, execution_id, execution_number)
 
 
 if __name__ == "__main__":
     """
     Main function to publish metrics via OpenTelemetry OTLP.
 
+    The OTLP endpoint is read from the OTEL_EXPORTER_OTLP_ENDPOINT environment variable,
+    with a default of 'http://localhost:4318' if not set.
+
     Args:
         workflow_name: Name of the test workflow
         execution_id: Testkube execution ID for this workflow run
-        otlp_endpoint: (OPTIONAL) URL to the OTLP endpoint (default: localhost:4318)
+        execution_number: Testkube execution number for this workflow run
 
     Examples:
-            python3 scripts/publish.py weather-assistant-test exec-123
-            python3 scripts/publish.py weather-assistant-test exec-123 http://localhost:4318
+            python3 scripts/publish.py weather-assistant-test exec-123 1
+            OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 python3 scripts/publish.py weather-assistant-test exec-123 1
     """
 
     parser = argparse.ArgumentParser(description="Publish RAGAS evaluation metrics via OpenTelemetry OTLP")
@@ -234,12 +248,6 @@ if __name__ == "__main__":
         "execution_number",
         help="Testkube execution number for this workflow run (for use as a *numeric* identifier in Grafana)",
     )
-    parser.add_argument(
-        "otlp_endpoint",
-        nargs="?",
-        default="localhost:4318",
-        help="URL of the OTLP HTTP endpoint (default: localhost:4318)",
-    )
 
     args = parser.parse_args()
 
@@ -248,5 +256,4 @@ if __name__ == "__main__":
         workflow_name=args.workflow_name,
         execution_id=args.execution_id,
         execution_number=args.execution_number,
-        otlp_endpoint=args.otlp_endpoint,
     )

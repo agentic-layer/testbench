@@ -1,0 +1,64 @@
+apiVersion: testworkflows.testkube.io/v1
+kind: TestWorkflow
+metadata:
+  name: multi-turn-workflow
+  namespace: testkube
+  labels:
+    testkube.io/test-category: ragas-evaluation
+    app: testworkflows
+
+spec:
+  # Pod configuration with volumes
+  pod:
+    volumes:
+      - name: metrics-config
+        configMap:
+          name: multi-turn-metrics-config
+#      - name: dataset
+#        configMap:
+#          name: dataset
+
+  container:
+    image: ghcr.io/agentic-layer/testbench/testworkflows:latest
+    env:
+      - name: OPENAI_API_BASE
+        value: "http://ai-gateway-litellm.ai-gateway:4000"
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: "http://lgtm.monitoring:4318"
+    volumeMounts:
+      - name: metrics-config
+        mountPath: /app/config/metrics.yaml
+        subPath: metrics.yaml
+#      - name: dataset
+#        mountPath: /data/datasets/ragas_dataset.jsonl
+#        subPath: dataset.jsonl
+
+  # Steps using the templates
+  steps:
+    # Step 1: Setup - Download and convert dataset
+    - name: setup
+      use:
+        - name: ragas-setup-template
+          config:
+            bucket: "datasets"
+            key: "multi_turn_dataset.json"
+
+    # Step 2: Run - Execute agent queries
+    - name: run
+      use:
+        - name: ragas-run-template
+          config:
+            agentUrl: "http://weather-agent.sample-agents:8000"
+
+    # Step 3: Evaluate - Run RAGAS evaluation
+    - name: evaluate
+      use:
+        - name: ragas-evaluate-template
+          config:
+            model: "gemini-2.5-flash-lite"
+            metricsConfigPath: "/app/config/metrics.yaml"
+
+    # Step 4: Publish - Push metrics to OTLP
+    - name: visualize
+      use:
+        - name: ragas-visualize-template

@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - lgtm/
   - weather-agent.yaml
-  - data-server/
+  - dataset.yaml
   - ../base
-  - ragas-evaluation-workflow.yaml
+  - multi-turn-metrics-configmap.yaml
+  - multi-turn-workflow.yaml

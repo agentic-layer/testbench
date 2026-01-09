@@ -10,27 +10,21 @@ metadata:
 spec:
   # Configuration parameters that can be overridden
   config:
-    datasetUrl:
+    bucket:
       type: string
-      description: "URL to the dataset file (.csv, .json, or .parquet)"
-    image:
+      description: "S3/MinIO bucket name containing the dataset"
+    key:
       type: string
-      description: "Docker image to use for the setup step"
-      default: "ghcr.io/agentic-layer/testbench/testworkflows:latest"
+      description: "S3/MinIO object key (path to dataset file in .csv / .json / .parquet format)"
 
   # Steps to execute
   steps:
-    - name: setup-dataset
+    - name: setup
+      artifacts:
+        paths:
+          - "data/datasets/ragas_dataset.jsonl"
       run:
-        command:
-          - sh
-          - -c
         args:
-          - |
-            uv run python3 setup.py "{{ config.datasetUrl }}" && \
-            if [ -f data/datasets/ragas_dataset.jsonl ]; then
-              echo "✓ Dataset created: $(wc -l < data/datasets/ragas_dataset.jsonl) lines"
-            else
-              echo "✗ Error: Dataset file not created"
-              exit 1
-            fi
+          - setup.py
+          - "{{ config.bucket }}"
+          - "{{ config.key }}"

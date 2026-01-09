@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dataset
+  namespace: testkube
+data:
+  dataset.jsonl: |
+    {"user_input": [{"content": "What is the weather like in New York right now?", "type": "human"}, {"content": "What time is it in New York?", "type": "human"}], "reference_tool_calls":  [{"name":"get_weather","args":{"city":"New York"}},{"name":"get_current_time","args":{"city":"New York"}}], "reference": "The agent should fulfill the user's request."}
+    {"user_input": [{"content": "What is the weather like in Bangkok right now?", "type": "human"}], "reference_tool_calls":  [{"name":"get_weather","args":{"city":"New York"}}], "reference": "The agent should fulfill the user's request."}
+    {"user_input": [{"content": "What is the weather like in New York right now?", "type": "human"}], "reference_tool_calls":  [{"name":"get_current_time","args":{"city":"New York"}}], "reference": "The agent should fulfill the user's request."}
+    {"user_input": [{"content": "What is the weather like in New York right now?", "type": "human"}], "reference_tool_calls":  [{"name":"get_current_time","args":{"city":"Bangkok"}}], "reference": "The agent should fulfill the user's request."}
