@@ -6,11 +6,10 @@ on:
       - 'v*.*.*'
 
 jobs:
-  release:
-    name: Build, Push and Create Release
+  helm-chart:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: write
 
     steps:
@@ -24,43 +23,6 @@ jobs:
         uses: ./.github/actions/build-push-image
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 'Create Install YAML'
-        env:
-          IMAGE_TAG: ${{ github.ref_name }}
-        run: |
-          # Extract version without 'v' prefix (e.g., v1.0.0 -> 1.0.0)
-          VERSION=${IMAGE_TAG#v}
-          IMAGE_NAME="ghcr.io/agentic-layer/testbench/testworkflows"
-
-          # Build the install.yaml and replace the image tag
-          kustomize build deploy/base | \
-            sed "s|${IMAGE_NAME}:latest|${IMAGE_NAME}:${VERSION}|g" > install.yaml
-
-          echo "Replaced image tag: ${IMAGE_NAME}:latest -> ${IMAGE_NAME}:${VERSION}"
-
-      - name: 'Create Release'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.ref_name }}
-        run: |
-          gh release create "$tag" \
-              --repo="$GITHUB_REPOSITORY" \
-              --title="${tag#v}" \
-              --generate-notes \
-              install.yaml
-
-  helm-chart:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout
-        uses: 'actions/checkout@v6'
-        with:
-          fetch-depth: 0
 
       - name: Install Helm
         uses: azure/setup-helm@v4
