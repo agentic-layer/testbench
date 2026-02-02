@@ -25,11 +25,16 @@ ENV/
 
 # Git
 .git/
+.github/
 .gitignore
 
 # Environment variables
 .env
 .env.*
+
+# Type checking and linting caches
+.mypy_cache/
+.ruff_cache/
 
 # Documentation
 *.md
@@ -37,6 +42,14 @@ ENV/
 # Data directories (created at runtime)
 data/
 results/
+
+# Test directories
+tests/
+tests_e2e/
+
+# Deployment manifests
+chart/
+deploy/
 
 # Temporary files
 *.log

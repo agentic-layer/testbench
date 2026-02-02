@@ -47,7 +47,10 @@ k8s_yaml(helm(
     'chart',
     name='testbench',
     namespace='testkube',
-    values=['chart/values.yaml']
+    values=['chart/values.yaml'],
+    set=[
+        'image.tag=latest',
+    ],
 ))
 
 # Apply local development manifests
