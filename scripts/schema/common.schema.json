@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Common Schema Definitions",
+  "description": "Shared definitions used across experiment schemas to eliminate redundancy.",
+  "definitions": {
+    "reference": {
+      "type": "object",
+      "description": "Expected reference data for evaluation",
+      "properties": {
+        "response": {
+          "type": "string",
+          "description": "Expected final response from the agent."
+        },
+        "tool_calls": {
+          "type": "array",
+          "description": "Expected tool calls the agent should make",
+          "items": {
+            "type": "object",
+            "required": ["name", "arguments"],
+            "properties": {
+              "name": { "type": "string" },
+              "arguments": {
+                "type": "object",
+                "description": "Key-value pairs of tool arguments."
+              }
+            }
+          }
+        },
+        "topics": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Expected topics that should be covered in the agent's response."
+        }
+      }
+    },
+    "turn": {
+      "type": "object",
+      "description": "A single turn in a multi-turn conversation",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The text content of the message or the stringified result of a tool call."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["human", "ai", "tool"],
+          "description": "The role of the entity generating the content."
+        },
+        "tool_calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "args": { "type": "object" }
+            },
+            "required": ["name", "args"]
+          }
+        }
+      },
+      "required": ["content", "type"]
+    },
+    "metric": {
+      "type": "object",
+      "description": "Metric configuration for evaluations",
+      "required": ["metric_name"],
+      "properties": {
+        "metric_name": {
+          "type": "string",
+          "description": "Registry ID (e.g., 'ragas_faithfulness', 'tool_check')"
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum acceptable score for this metric (0.0 to 1.0). Values below this threshold indicate test failure."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Arguments passed to the generic metric adapter."
+        }
+      }
+    }
+  }
+}
