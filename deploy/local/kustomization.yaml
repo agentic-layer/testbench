@@ -2,6 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - lgtm/
+  - otel-config.yaml
   - weather-agent.yaml
   - dataset.yaml
   - multi-turn-metrics-configmap.yaml

@@ -13,10 +13,6 @@ spec:
     agentUrl:
       type: string
       description: "URL to the agent endpoint (A2A protocol)"
-    otelExporterOtlpEndpoint:
-      type: string
-      description: "OTel Collector endpoint for exporting traces and metrics"
-      default: "http://lgtm.monitoring:4318"
 
   # Steps to execute
   steps:
@@ -29,6 +25,3 @@ spec:
         args:
           - run.py
           - "{{`{{ config.agentUrl }}`}}"
-        env:
-          - name: OTEL_EXPORTER_OTLP_ENDPOINT
-            value: "{{`{{ config.otelExporterOtlpEndpoint }}`}}"

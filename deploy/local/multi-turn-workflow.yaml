@@ -22,7 +22,12 @@ spec:
             key: metrics.yaml
 
   container:
-    image: ghcr.io/agentic-layer/testbench/testworkflows:latest
+    env:
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        valueFrom:
+          configMapKeyRef:
+            name: otel-config
+            key: OTEL_EXPORTER_OTLP_ENDPOINT
 
   use:
   - name: ragas-run-template
@@ -32,4 +37,5 @@ spec:
     config:
       model: "gemini-2.5-flash-lite"
   - name: ragas-publish-template
+    config:
   - name: ragas-visualize-template
