@@ -1,0 +1,60 @@
+= Cross-cutting Concepts
+
+== Observability
+
+The Testbench integrates OpenTelemetry for both tracing and metrics.
+
+=== Tracing (Run Phase)
+
+The Run phase creates OpenTelemetry spans for each agent query:
+
+* **Tracer provider** with a service name resource and span processor
+* **Span exporter** using OTLP over HTTP/protobuf
+* **HTTP auto-instrumentation** for distributed trace context propagation (W3C Trace Context)
+* **Per-query spans** with attributes for user input, reference, agent URL, and workflow name
+* **Multi-turn parent spans** with child spans per conversation turn, tracking context ID and message count
+
+The trace ID from each span is stored in the experiment output and propagated through evaluation to publishing, linking the full pipeline to the original agent interaction.
+
+=== Metrics (Publish Phase)
+
+The Publish phase exports per-sample evaluation gauges:
+
+* **Gauge**: `testbench_evaluation_metric` -- one observation per sample per metric
+* **Attributes**: metric name, workflow name, execution ID, execution number, trace ID, sample hash, truncated user input
+* **Resource**: service name and workflow name
+* **Exporter**: OTLP over HTTP/protobuf
+
+== A2A Protocol Integration
+
+The Testbench communicates with agents under test using the A2A (Agent-to-Agent) JSON-RPC protocol.
+
+* **Client initialization** -- creates a minimal agent card from the agent URL
+* **Message sending** -- sends messages asynchronously and collects responses
+* **Context management** -- A2A context ID maintains conversation state across multiple turns in multi-turn evaluations
+* **Response extraction** -- agent responses are extracted from A2A task artifacts and stored in the experiment output
+
+== Evaluation Framework
+
+The Testbench uses a framework-agnostic adapter pattern for LLM-as-a-judge evaluation.
+
+=== Adapter Pattern
+
+The evaluation system is built around three core abstractions:
+
+* **Metrics Registry** -- central registry that manages framework adapters and provides a unified interface for metric creation
+* **Framework Adapter** -- defines the contract for plugging in evaluation frameworks (discovery, instantiation, wrapping)
+* **Metric Callable** -- unified interface for metric execution: accepts a sample and returns a score with an optional reason
+
+Each framework adapter wraps its native metric instances in a callable that handles parameter filtering, data format translation, and result extraction. This decouples the evaluation pipeline from any specific framework.
+
+=== LLM-as-Judge
+
+Metrics are evaluated using an LLM accessed through the AI Gateway. The LLM is injected into metric callables at creation time. Each callable handles framework-specific invocation internally and returns numeric scores (typically 0.0 to 1.0) with optional explanations.
+
+== Containerization
+
+All pipeline phases share a single Docker image:
+
+* **Dependency management** -- uses `uv` for fast, reproducible installs
+* **Single entrypoint** -- each phase is selected by passing the appropriate command argument

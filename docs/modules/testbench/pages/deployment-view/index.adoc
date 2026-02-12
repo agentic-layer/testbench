@@ -1,0 +1,15 @@
+= Deployment View
+
+== Helm Chart
+
+The Testbench is packaged as a Helm chart that deploys Testkube resources into a target cluster.
+
+=== Container Image
+
+All phases share a single Docker image by default. The specific phase is selected via command arguments passed by each template. This keeps deployment simple -- one image to build, tag, and distribute.
+
+Each step references its own container image via the template's `image` parameter, so teams can override individual steps with custom images when needed.
+
+== Workflow Composition
+
+A `TestWorkflow` CRD composes the templates into a complete evaluation pipeline. Each template runs as a separate step within the workflow, sharing a volume for inter-phase data passing.

@@ -1,0 +1,33 @@
+= Glossary
+
+[cols="1,3"]
+|===
+| Term | Definition
+
+| Dataset
+| A collection of test samples used as input for agent evaluation. Each sample typically includes a user query, reference contexts, and an expected answer.
+
+| Experiment
+| A dataset enriched with agent responses and trace IDs, produced by the Run phase.
+
+| Evaluation
+| An experiment enriched with per-metric scores, produced by the Evaluate phase.
+
+| Framework Adapter
+| An abstraction that defines the contract for plugging evaluation frameworks into the Testbench. Implementations provide metric discovery and metric callable creation.
+
+| Generic Metrics Registry
+| A central registry that manages framework adapters and provides a unified interface for creating metric callables from any registered evaluation framework.
+
+| Metric Callable
+| The unified interface for metric execution: accepts a sample and returns a score with an optional reason. Each framework adapter wraps its native metrics in a metric callable.
+
+| Testkube
+| A Kubernetes-native test orchestrator that manages the execution of evaluation workflows via `TestWorkflow` and `TestWorkflowTemplate` CRDs.
+
+| TestWorkflow
+| A Testkube CRD that composes multiple `TestWorkflowTemplate` resources into a complete evaluation pipeline with shared data volumes.
+
+| TestWorkflowTemplate
+| A Testkube CRD defining a reusable, parameterized step in an evaluation pipeline. Each Testbench phase (setup, run, evaluate, publish, visualize) is a separate template.
+|===

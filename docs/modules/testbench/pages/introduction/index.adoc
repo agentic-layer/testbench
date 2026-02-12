@@ -1,0 +1,51 @@
+= Introduction and Goals
+
+== Purpose and Scope
+
+The Testbench is a Kubernetes-native evaluation system that measures the quality of AI agents using pluggable evaluation framework adapters. It executes test datasets against agents via the A2A (Agent-to-Agent) protocol and publishes evaluation metrics through OTLP to an observability backend.
+
+The system operates as a sequential 4-phase pipeline:
+
+. **Setup** -- Download a test dataset
+. **Run** -- Execute queries against an agent under test via A2A protocol
+. **Evaluate** -- Calculate metrics using an LLM-as-a-judge approach
+. **Publish** -- Send evaluation results to an OTLP-compatible observability backend
+
+An optional **Visualize** phase generates a self-contained HTML dashboard for local viewing and sharing.
+
+== Key Features
+
+* **4-phase sequential pipeline** with well-defined intermediate data formats between phases
+* **A2A protocol integration** -- evaluates any agent that implements the A2A JSON-RPC specification
+* **Single-turn and multi-turn conversation support** -- automatic detection based on dataset structure
+* **Configurable evaluation metrics** -- JSON/YAML configuration files with pluggable framework adapters
+* **OTLP observability** -- per-sample metric gauges published to any OpenTelemetry-compatible backend
+* **OpenTelemetry tracing** -- spans for each agent query with trace context propagation
+* **HTML visualization** -- self-contained dashboard with charts, statistics, and searchable results
+* **Testkube orchestration** -- packaged as reusable `TestWorkflowTemplate` CRDs composed into workflows
+
+== Role in the Agentic Layer
+
+The Testbench is a component of the Agentic Layer platform, providing automated testing and quality assurance for deployed agents. It integrates with:
+
+* **Agent Runtime Operator** -- manages the lifecycle of agents under test
+* **AI Gateway** -- routes LLM requests for evaluation to configured model providers
+
+== Quality Goals
+
+[cols="1,3"]
+|===
+| Goal | Description
+
+| Reproducibility
+| Deterministic pipeline execution with versioned datasets and metric configurations
+
+| Extensibility
+| New metrics from any registered framework adapter are automatically discovered without code changes
+
+| Observability
+| Full traceability from test execution to evaluation results via OpenTelemetry
+
+| Portability
+| Single Docker image for all phases, deployable via Helm chart to any Kubernetes cluster
+|===
