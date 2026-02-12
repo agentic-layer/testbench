@@ -1,0 +1,67 @@
+= System Scope and Context
+
+== Context Diagram
+
+The following C4 context diagram shows the Testbench system and its external dependencies.
+
+[plantuml, context-diagram, format="svg"]
+----
+@startuml
+!include <C4/C4_Context>
+
+title System Context Diagram - Testbench
+
+Person(tester, "Platform Engineer", "Triggers evaluation workflows")
+
+System(testbench, "Testbench", "Kubernetes-native agent evaluation system.\nExecutes test datasets via A2A, evaluates with LLM-as-judge, publishes metrics via OTLP.")
+
+System_Ext(minio, "S3 / MinIO", "Object storage hosting test datasets")
+System_Ext(agent, "AI Agent (A2A)", "Agent under test exposing\nA2A JSON-RPC endpoint")
+System_Ext(gateway, "AI Gateway", "Routes LLM requests to\nconfigured model providers")
+System_Ext(llm, "LLM Providers", "Gemini, OpenAI, or other\nmodel providers")
+System_Ext(otlp, "Observability Stack", "OTLP collector + Grafana/Mimir\nfor metrics and dashboards")
+System_Ext(testkube, "Testkube", "Kubernetes-native test orchestrator\nmanaging workflow execution")
+
+Rel(tester, testkube, "Triggers evaluation workflow")
+Rel(testkube, testbench, "Orchestrates pipeline phases")
+Rel(testbench, minio, "Downloads test dataset", "S3 API")
+Rel(testbench, agent, "Sends test queries", "A2A JSON-RPC (HTTP)")
+Rel(testbench, gateway, "Requests LLM evaluation", "OpenAI-compatible API")
+Rel(gateway, llm, "Proxies LLM requests")
+Rel(testbench, otlp, "Publishes metrics and traces", "OTLP/HTTP")
+Rel(tester, otlp, "Views evaluation results")
+
+@enduml
+----
+
+== External Systems
+
+=== S3 / MinIO (Dataset Source)
+Object storage providing test datasets. The Testbench downloads datasets via the S3 API.
+
+Testkube also uses S3-compatible storage (MinIO by default) to store test artifacts.
+
+=== AI Agent (A2A)
+The agent under test, which must expose an A2A JSON-RPC endpoint. The Testbench sends test queries and records the agent's responses. Multi-turn conversations are supported through A2A context ID state management.
+
+=== AI Gateway
+An OpenAI-compatible API proxy that routes LLM requests to configured model providers (e.g., Gemini, OpenAI). Used during the Evaluate phase for LLM-as-a-judge metric calculation. Configured via `OPENAI_BASE_URL` environment variable.
+
+=== LLM Providers
+External model providers (Google Gemini, OpenAI, etc.) accessed through the AI Gateway. The specific model is configurable per evaluation run (e.g., `gemini-2.5-flash-lite`).
+
+=== Observability Stack (OTLP)
+An OpenTelemetry-compatible backend for metrics and traces. The Testbench publishes:
+
+* **Traces** -- per-query spans from the Run phase with HTTP auto-instrumentation
+* **Metrics** -- per-sample evaluation gauges from the Publish phase
+
+=== Testkube
+Kubernetes-native test orchestrator that manages the execution of evaluation workflows. The Testbench is packaged as reusable `TestWorkflowTemplate` CRDs that Testkube composes into complete pipelines. Testkube provides workflow-level variables (`workflow.name`, `execution.id`, `execution.number`) used for metric labeling and traceability.
+
+== Interaction Patterns
+
+. **Dataset ingestion** -- Setup phase downloads dataset from S3/MinIO
+. **Agent querying** -- Run phase sends each dataset entry to the agent via A2A protocol, recording responses and OpenTelemetry trace IDs
+. **LLM-as-judge evaluation** -- Evaluate phase uses configured metrics with an LLM (via AI Gateway) to score each response
+. **Metrics publishing** -- Publish phase exports per-sample metric gauges to the OTLP endpoint for visualization in Grafana
