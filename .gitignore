@@ -29,3 +29,6 @@ go.work
 .env
 
 scripts/data
+
+# oh-my-claudecode state
+.omc
