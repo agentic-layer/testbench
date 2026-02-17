@@ -1,96 +1,21 @@
 import argparse
 import asyncio
-import inspect
 import json
 import logging
 from dataclasses import dataclass
 from logging import Logger
-from typing import Any, Union
+from typing import Any
 
-import ragas.metrics.collections as metrics_module
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from metrics import GenericMetricsRegistry, MetricResult, dict_to_executed_step
+from metrics.protocol import MetricCallable
 from openai import AsyncOpenAI
 from ragas import Experiment, experiment
 from ragas.backends import LocalJSONLBackend
 from ragas.llms import llm_factory
-from ragas.metrics.collections import BaseMetric
 
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)
 logger: Logger = logging.getLogger(__name__)
-
-
-class MetricsRegistry:
-    """Registry for RAGAS metrics discovery and management."""
-
-    def __init__(self):
-        """Initialize registry and discover available metrics."""
-        self._classes: dict[str, type[BaseMetric]] = {}
-        self._discover_metrics()
-
-    def _discover_metrics(self) -> None:
-        """
-        Discover metric classes from Ragas.
-
-        Populates _classes dictionary with available BaseMetric subclasses.
-        """
-        for name, obj in inspect.getmembers(metrics_module):
-            if name.startswith("_"):
-                continue
-
-            if inspect.isclass(obj) and issubclass(obj, BaseMetric) and obj is not BaseMetric:
-                self._classes[name] = obj
-
-    def get_class(self, name: str) -> type[BaseMetric]:
-        """
-        Get metric class by name.
-
-        Args:
-            name: Class name
-
-        Returns:
-            BaseMetric class type
-
-        Raises:
-            ValueError: If class not found
-        """
-        if name not in self._classes:
-            raise ValueError(f"Unknown class '{name}'.\nAvailable: {', '.join(sorted(self._classes.keys()))}")
-        return self._classes[name]
-
-    def instantiate_metric(self, class_name: str, parameters: dict[str, Any], llm: Any) -> BaseMetric:
-        """
-        Instantiate metric class with custom parameters.
-
-        Args:
-            class_name: Name of metric class
-            parameters: Dictionary of constructor parameters
-            llm: LLM wrapper to include in metric instantiation
-
-        Returns:
-            BaseMetric instance
-
-        Raises:
-            ValueError: If class not found or instantiation fails
-        """
-        metric_class = self.get_class(class_name)
-
-        try:
-            # Add llm to parameters for metrics that accept it
-            params_with_llm = {**parameters, "llm": llm}
-            return metric_class(**params_with_llm)
-        except TypeError as e:
-            sig = inspect.signature(metric_class.__init__)
-            raise ValueError(f"Invalid parameters for {class_name}: {e}\nExpected signature: {sig}")
-
-    def list_classes(self) -> list[str]:
-        """Return sorted list of available class names."""
-        return sorted(self._classes.keys())
-
-    @classmethod
-    def create_default(cls) -> "MetricsRegistry":
-        """Factory method for default registry with auto-discovery."""
-        return cls()
 
 
 def load_metrics_config(config_path: str) -> list[dict]:
@@ -98,6 +23,7 @@ def load_metrics_config(config_path: str) -> list[dict]:
     Load metrics configuration from JSON or YAML file.
 
     Returns raw metric definitions without instantiation.
+    Adds default framework='ragas' to each definition if not present.
 
     Args:
         config_path: Path to configuration file
@@ -136,21 +62,26 @@ def load_metrics_config(config_path: str) -> list[dict]:
     if not config["metrics"]:
         raise ValueError("Config file contains no valid metrics")
 
+    # Add default framework to each metric definition
+    for metric_def in config["metrics"]:
+        if "framework" not in metric_def:
+            metric_def["framework"] = "ragas"
+
     # Return raw definitions
     return config["metrics"]
 
 
-def instantiate_metric(metric_def: dict, llm: Any, registry: MetricsRegistry) -> BaseMetric:
+def instantiate_metric(metric_def: dict, llm: Any, registry: GenericMetricsRegistry) -> tuple[MetricCallable, str]:
     """
-    Instantiate a single metric from its definition.
+    Instantiate a single metric from its definition via the generic registry.
 
     Args:
         metric_def: Metric definition dictionary
         llm: LLM wrapper to pass to metric
-        registry: MetricsRegistry for class lookup
+        registry: GenericMetricsRegistry for callable creation
 
     Returns:
-        Instantiated BaseMetric
+        Tuple of (MetricCallable, metric_name)
 
     Raises:
         ValueError: If definition is invalid
@@ -166,7 +97,9 @@ def instantiate_metric(metric_def: dict, llm: Any, registry: MetricsRegistry) ->
 
         class_name = metric_def["class_name"]
         parameters = metric_def.get("parameters", {})
-        return registry.instantiate_metric(class_name, parameters, llm)
+        framework = metric_def.get("framework", "ragas")
+        callable_ = registry.get_metric_callable(framework, class_name, parameters, llm)
+        return callable_, class_name
     else:
         raise ValueError(f"Unknown metric type '{metric_type}'.\nSupported types: 'class'")
 
@@ -247,10 +180,10 @@ async def evaluation_experiment(
     row: dict[str, Any],
     metric_definitions: list[dict],
     llm: Any,  # LangchainLLMWrapper - using Any to avoid mypy type alias issue
-    registry: MetricsRegistry,
+    registry: GenericMetricsRegistry,
 ) -> dict[str, Any]:
     """
-    Evaluate a single sample using RAGAS metrics.
+    Evaluate a single sample using metrics via the generic registry.
 
     This function is decorated with @experiment() to enable automatic result tracking
     and batch processing across the dataset.
@@ -259,7 +192,7 @@ async def evaluation_experiment(
         row: Dataset row containing user_input, response, retrieved_contexts, reference
         metric_definitions: List of metric definition dicts from config
         llm: LLM wrapper for metric calculation
-        registry: MetricsRegistry for instantiation
+        registry: GenericMetricsRegistry for callable creation
 
     Returns:
         Dictionary with original row data plus metric scores
@@ -267,91 +200,23 @@ async def evaluation_experiment(
     result = dict(row)
     result["individual_results"] = {}
 
+    # Convert the raw dict row to a typed ExecutedStep
+    executed_step = dict_to_executed_step(row)
+
     # Instantiate and calculate each metric for this row
     for metric_def in metric_definitions:
         try:
-            # Instantiate metric from definition with LLM
-            metric = instantiate_metric(metric_def, llm, registry)
+            metric_callable, metric_name = instantiate_metric(metric_def, llm, registry)
 
-            # Get the parameters that ascore expects
-            sig = inspect.signature(metric.ascore)
-            expected_params = set(sig.parameters.keys())
-
-            # Filter row to only include fields that ascore expects
-            filtered_params = {k: v for k, v in row.items() if k in expected_params}
-
-            if "user_input" in filtered_params and isinstance(filtered_params["user_input"], list):
-                filtered_params["user_input"] = map_user_input(filtered_params["user_input"])
-
-            if "reference_tool_calls" in filtered_params and isinstance(filtered_params["reference_tool_calls"], list):
-                filtered_params["reference_tool_calls"] = map_reference_tool_calls(
-                    filtered_params["reference_tool_calls"]
-                )
-
-            # Calculate metric_result with only the required parameters
-            metric_result = await metric.ascore(**filtered_params)  # type: ignore[call-arg]
-            result["individual_results"][metric.name] = metric_result.value
+            # Call the metric callable with the typed ExecutedStep
+            metric_result: MetricResult = await metric_callable(executed_step)
+            result["individual_results"][metric_name] = metric_result.score
         except Exception as e:
             metric_name = metric_def.get("class_name", "unknown")
             logger.warning(f"Failed to calculate {metric_name} for row: {e}")
             result[metric_name] = None
 
     return result
-
-
-def map_user_input(user_input: list[Any]) -> list[Union[HumanMessage, AIMessage, ToolMessage]]:
-    """
-    Map input message dicts to appropriate LangChain message types.
-
-    Args:
-        user_input: List of message dictionaries with 'type' and 'content' fields
-
-    Returns:
-        List of LangChain message objects (HumanMessage, AIMessage, ToolMessage)
-    """
-    mapped_messages: list[Union[HumanMessage, AIMessage, ToolMessage]] = []
-    for input_msg in user_input:
-        if isinstance(input_msg, dict) and "type" in input_msg:
-            msg_type = input_msg["type"]
-            content = input_msg.get("content", "")
-
-            if msg_type == "human":
-                mapped_messages.append(HumanMessage(content=content))
-            elif msg_type == "ai":
-                mapped_messages.append(AIMessage(content=content))
-            elif msg_type == "tool":
-                mapped_messages.append(ToolMessage(content=content, tool_call_id=input_msg.get("tool_call_id", "")))
-            else:
-                logger.warning(f"Unknown message type '{msg_type}', treating as human message")
-                mapped_messages.append(HumanMessage(content=content))
-        else:
-            # If not a dict with type, treat as human message
-            logger.warning(f"Invalid message format, treating as human message: {input_msg}")
-            content_str = str(input_msg.get("content", "")) if isinstance(input_msg, dict) else str(input_msg)
-            mapped_messages.append(HumanMessage(content=content_str))
-    return mapped_messages
-
-
-def map_reference_tool_calls(referenced_tool_calls):
-    """
-    Map reference tool call dicts to proper structure expected by RAGAS metrics.
-
-    Converts tool call dictionaries to a standardized format with name, args, and id fields.
-    """
-    mapped_tool_calls = []
-    for tool_call in referenced_tool_calls:
-        if isinstance(tool_call, dict):
-            # Ensure tool call has required fields
-            mapped_call = {
-                "name": tool_call.get("name", ""),
-                "args": tool_call.get("args", {}),
-                "id": tool_call.get("id", ""),
-            }
-            mapped_tool_calls.append(mapped_call)
-        else:
-            # If not a dict, keep original
-            mapped_tool_calls.append(tool_call)
-    return mapped_tool_calls
 
 
 async def main(
@@ -387,8 +252,8 @@ async def main(
     metric_names = [d.get("class_name", "unknown") for d in metric_definitions]
     logger.info(f"Calculating metrics: {', '.join(metric_names)}...")
 
-    # Create registry for metric instantiation
-    registry = MetricsRegistry.create_default()
+    # Create generic registry for metric instantiation
+    registry = GenericMetricsRegistry.create_default()
 
     # Run evaluation experiment - this will process each row and save results automatically
     # Metrics are instantiated per-row inside evaluation_experiment()
@@ -407,7 +272,8 @@ async def main(
 
 if __name__ == "__main__":
     # Create registry for help text generation
-    registry = MetricsRegistry.create_default()
+    registry = GenericMetricsRegistry.create_default()
+    ragas_metrics = registry.list_metrics("ragas").get("ragas", [])
 
     # Parse the parameters (model and metrics-config) evaluate.py was called with
     parser = argparse.ArgumentParser(
@@ -416,7 +282,7 @@ if __name__ == "__main__":
         epilog=f"""
 
 Available metric classes (configurable via --metrics-config):
-  {", ".join(registry.list_classes())}
+  {", ".join(ragas_metrics)}
 
 Examples:
   python3 scripts/evaluate.py gemini-2.5-flash-lite --metrics-config examples/metrics_simple.json

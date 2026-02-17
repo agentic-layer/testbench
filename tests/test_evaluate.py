@@ -4,7 +4,6 @@ Unit tests for evaluate.py
 Tests the RAGAS evaluation functionality.
 """
 
-import inspect
 import json
 import os
 import shutil
@@ -13,17 +12,16 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from ragas.metrics import BaseMetric
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from evaluate import (
-    MetricsRegistry,
     format_experiment_results,
     instantiate_metric,
     load_metrics_config,
     main,
 )
+from metrics import GenericMetricsRegistry
 
 
 # Fixtures
@@ -66,27 +64,8 @@ def experiment_data(temp_dir):
 
 @pytest.fixture
 def default_registry():
-    """Fixture providing a default MetricsRegistry."""
-    return MetricsRegistry.create_default()
-
-
-@pytest.fixture
-def mock_registry():
-    """Fixture providing a registry with mock metrics for testing."""
-    from unittest.mock import MagicMock
-
-    registry = MetricsRegistry()
-
-    # Clear auto-discovered metrics
-    registry._classes = {}
-
-    # Add mock class
-    mock_class = MagicMock(spec=type)
-    mock_class.__name__ = "TestMetricClass"
-    mock_class.return_value = MagicMock(spec=BaseMetric)
-    registry._classes["TestMetricClass"] = mock_class
-
-    return registry
+    """Fixture providing a default GenericMetricsRegistry."""
+    return GenericMetricsRegistry.create_default()
 
 
 # TestFormatExperimentResults tests
@@ -188,6 +167,9 @@ async def test_main_successful_execution(experiment_data, monkeypatch, tmp_path)
 
         # Mock evaluation_experiment.arun with new signature
         async def mock_experiment_arun(dataset, name, metric_definitions, llm, registry):
+            # Verify registry is GenericMetricsRegistry
+            assert isinstance(registry, GenericMetricsRegistry)
+
             # Create the evaluation results file that would be created by the experiment
             evaluation_results_file = experiment_results_dir / "ragas_evaluation.jsonl"
             test_result = {
@@ -239,35 +221,31 @@ async def test_main_successful_execution(experiment_data, monkeypatch, tmp_path)
 
 # TestMetricDiscovery tests
 def test_metric_discovery(default_registry):
-    """Test that metric classes are discovered."""
-    classes = default_registry.list_classes()
-
-    # Test that classes are discovered
-    assert len(classes) > 0
-    for name in classes:
-        cls = default_registry.get_class(name)
-        assert inspect.isclass(cls)
-        assert issubclass(cls, BaseMetric)
+    """Test that metric classes are discovered via GenericMetricsRegistry."""
+    metrics = default_registry.list_metrics("ragas")
+    assert "ragas" in metrics
+    assert len(metrics["ragas"]) > 0
 
 
 # Test instantiate_metric
 def test_instantiate_metric_success(default_registry):
-    """Test successful class instantiation without parameters."""
+    """Test successful class instantiation returns tuple of (callable, name)."""
     from unittest.mock import MagicMock
 
-    classes = default_registry.list_classes()
-    if not classes:
+    ragas_metrics = default_registry.list_metrics("ragas").get("ragas", [])
+    if not ragas_metrics:
         pytest.skip("No metric classes available")
 
     # Create mock LLM
     mock_llm = MagicMock()
 
     # Find a class that can be instantiated without parameters
-    for class_name in classes:
+    for class_name in ragas_metrics:
         try:
-            metric_def = {"type": "class", "class_name": class_name, "parameters": {}}
-            metric = instantiate_metric(metric_def, mock_llm, default_registry)
-            assert isinstance(metric, BaseMetric)
+            metric_def = {"type": "class", "class_name": class_name, "parameters": {}, "framework": "ragas"}
+            callable_, name = instantiate_metric(metric_def, mock_llm, default_registry)
+            assert callable_ is not None
+            assert name == class_name
             return  # Success!
         except (TypeError, ValueError):
             continue  # Try next class
@@ -279,8 +257,8 @@ def test_instantiate_metric_unknown(default_registry):
     from unittest.mock import MagicMock
 
     mock_llm = MagicMock()
-    metric_def = {"type": "class", "class_name": "NonexistentClass", "parameters": {}}
-    with pytest.raises(ValueError, match="Unknown class"):
+    metric_def = {"type": "class", "class_name": "NonexistentClass", "parameters": {}, "framework": "ragas"}
+    with pytest.raises(ValueError, match="Unknown RAGAS metric class"):
         instantiate_metric(metric_def, mock_llm, default_registry)
 
 
@@ -288,16 +266,17 @@ def test_instantiate_metric_invalid_params(default_registry):
     """Test error for invalid parameters or LLM validation."""
     from unittest.mock import MagicMock
 
-    classes = default_registry.list_classes()
-    if not classes:
+    ragas_metrics = default_registry.list_metrics("ragas").get("ragas", [])
+    if not ragas_metrics:
         pytest.skip("No metric classes available")
 
     mock_llm = MagicMock()
-    class_name = classes[0]
+    class_name = ragas_metrics[0]
     metric_def = {
         "type": "class",
         "class_name": class_name,
         "parameters": {"completely_invalid_param_name_xyz": "value"},
+        "framework": "ragas",
     }
     # Should raise ValueError either for invalid parameters or LLM validation
     with pytest.raises(ValueError, match="(Invalid parameters|InstructorLLM)"):
@@ -311,13 +290,13 @@ def test_load_metrics_config_json(tmp_path, default_registry):
 
 
 def test_load_metrics_config_with_class(tmp_path, default_registry):
-    """Test loading metrics config returns definitions, not instances."""
-    classes = default_registry.list_classes()
-    if not classes:
+    """Test loading metrics config returns definitions with framework default."""
+    ragas_metrics = default_registry.list_metrics("ragas").get("ragas", [])
+    if not ragas_metrics:
         pytest.skip("No metric classes available")
 
     # Use any class name (we're not instantiating, just loading config)
-    class_name = classes[0]
+    class_name = ragas_metrics[0]
 
     config_file = tmp_path / "metrics.json"
     config = {
@@ -328,13 +307,14 @@ def test_load_metrics_config_with_class(tmp_path, default_registry):
     with open(config_file, "w") as f:
         json.dump(config, f)
 
-    # load_metrics_config should return list of dicts, not BaseMetric instances
+    # load_metrics_config should return list of dicts with framework default added
     definitions = load_metrics_config(str(config_file))
     assert len(definitions) == 1
     assert isinstance(definitions[0], dict)
     assert definitions[0]["type"] == "class"
     assert definitions[0]["class_name"] == class_name
     assert definitions[0]["parameters"] == {}
+    assert definitions[0]["framework"] == "ragas"
 
 
 def test_load_metrics_config_invalid_format(tmp_path):
@@ -370,13 +350,14 @@ def test_load_metrics_config_empty_metrics(tmp_path):
         load_metrics_config(str(config_file))
 
 
-# Test MetricsRegistry class
+# Test GenericMetricsRegistry
 def test_registry_initialization():
-    """Test that registry initializes and discovers metric classes."""
-    registry = MetricsRegistry()
+    """Test that GenericMetricsRegistry initializes with RAGAS adapter."""
+    registry = GenericMetricsRegistry.create_default()
 
-    # BaseMetric approach only has classes, no instances
-    assert len(registry.list_classes()) > 0
+    metrics = registry.list_metrics()
+    assert "ragas" in metrics
+    assert len(metrics["ragas"]) > 0
 
 
 def test_registry_get_instance(default_registry):
@@ -389,39 +370,34 @@ def test_registry_get_instance_unknown(default_registry):
     pytest.skip("Instance-type metrics are no longer supported")
 
 
-def test_registry_get_class(default_registry):
-    """Test getting classes from registry."""
-    classes = default_registry.list_classes()
-    if not classes:
-        pytest.skip("No classes available")
-
-    name = classes[0]
-    cls = default_registry.get_class(name)
-    assert inspect.isclass(cls)
-    assert issubclass(cls, BaseMetric)
+def test_registry_list_ragas_metrics(default_registry):
+    """Test listing RAGAS metrics from registry."""
+    metrics = default_registry.list_metrics("ragas")
+    assert "ragas" in metrics
+    assert len(metrics["ragas"]) > 0
 
 
-def test_registry_get_class_unknown(default_registry):
-    """Test error for unknown class."""
-    with pytest.raises(ValueError, match="Unknown class"):
-        default_registry.get_class("NonexistentClass")
+def test_registry_unknown_framework(default_registry):
+    """Test error for unknown framework."""
+    with pytest.raises(ValueError, match="Unknown framework"):
+        default_registry.list_metrics("nonexistent")
 
 
-def test_registry_instantiate_class(default_registry):
-    """Test instantiating class via registry."""
+def test_registry_get_callable(default_registry):
+    """Test getting a callable from registry."""
     from unittest.mock import MagicMock
 
-    classes = default_registry.list_classes()
-    if not classes:
-        pytest.skip("No classes available")
+    ragas_metrics = default_registry.list_metrics("ragas").get("ragas", [])
+    if not ragas_metrics:
+        pytest.skip("No RAGAS metrics available")
 
     mock_llm = MagicMock()
 
     # Find instantiable class
-    for class_name in classes:
+    for class_name in ragas_metrics:
         try:
-            metric = default_registry.instantiate_metric(class_name, {}, mock_llm)
-            assert isinstance(metric, BaseMetric)
+            callable_ = default_registry.get_metric_callable("ragas", class_name, {}, mock_llm)
+            assert callable_ is not None
             return
         except (TypeError, ValueError):
             continue
@@ -431,16 +407,3 @@ def test_registry_instantiate_class(default_registry):
 def test_registry_load_from_config(tmp_path, default_registry):
     """Test loading config via registry method - skipped as instances not supported."""
     pytest.skip("Instance-type metrics are no longer supported")
-
-
-def test_mock_registry_fixture(mock_registry):
-    """Test that mock registry fixture works."""
-    from unittest.mock import MagicMock
-
-    assert mock_registry.list_classes() == ["TestMetricClass"]
-
-    mock_llm = MagicMock()
-
-    # Test class instantiation
-    metric = mock_registry.instantiate_metric("TestMetricClass", {}, mock_llm)
-    assert isinstance(metric, BaseMetric)

@@ -107,9 +107,7 @@ class A2AExecutor:
         self._context_id = result.context_id
         turns = result.turns
 
-        step_id = _content_hash(
-            f"{self._current_scenario_id}:{step.input}:{self._step_index}", prefix="stp_"
-        )
+        step_id = _content_hash(f"{self._current_scenario_id}:{step.input}:{self._step_index}", prefix="stp_")
         self._step_index += 1
 
         executed_step = ExecutedStep(
