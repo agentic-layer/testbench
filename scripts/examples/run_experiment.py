@@ -11,9 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
-from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -24,7 +22,6 @@ from schema.models import (
     ExecutedExperiment,
     ExecutedScenario,
     ExecutedStep,
-    Experiment,
     Scenario,
     Step,
 )
@@ -42,9 +39,11 @@ class A2AExecutor:
     ``Scenario`` → ``ExecutedScenario``.
     """
 
-    def __init__(self, agent_url: str, workflow_name: str) -> None:
+    def __init__(self, agent_url: str, workflow_name: str, input_path: str, output_path: str) -> None:
         self.agent_url = agent_url
         self.workflow_name = workflow_name
+        self.input_path = input_path
+        self.output_path = output_path
 
         # Per-scenario mutable state, reset in before_scenario
         self._context_id: str | None = None
@@ -116,7 +115,7 @@ class A2AExecutor:
     # Public API
     # ------------------------------------------------------------------
 
-    async def run(self, experiment: Experiment) -> ExecutedExperiment:
+    async def run(self) -> ExecutedExperiment:
         """Execute all scenarios and return a fully-typed ExecutedExperiment."""
         self._scenario_meta = []
         self._scenario_steps = []
@@ -124,6 +123,8 @@ class A2AExecutor:
 
         runtime = ExperimentRuntime(
             on_step=self.on_step,
+            input_path=self.input_path,
+            output_path=self.output_path,
             before_scenario=self.before_scenario,
             after_scenario=self.after_scenario,
         )
@@ -131,7 +132,7 @@ class A2AExecutor:
         async with httpx.AsyncClient(timeout=httpx.Timeout(300)) as client:
             self._http_client = client
             self._a2a_client = A2AStepClient(self.agent_url, client)
-            result = await runtime.run(experiment)
+            result = await runtime.run()
             self._a2a_client = None
             self._http_client = None
 
@@ -153,7 +154,7 @@ class A2AExecutor:
             )
 
         return ExecutedExperiment(
-            **experiment.model_dump(exclude={"scenarios"}),
+            **result.model_dump(exclude={"scenarios"}),
             id=uuid4().hex,
             scenarios=executed_scenarios,
         )
@@ -163,19 +164,14 @@ async def main(agent_url: str, workflow_name: str, input_path: str) -> None:
     """Load an experiment, execute it, and write the result."""
     setup_otel()
 
-    # Load experiment from JSON
-    experiment_data = json.loads(Path(input_path).read_text())
-    experiment = Experiment.model_validate(experiment_data)
-    logger.info("Loaded experiment with %d scenarios from %s", len(experiment.scenarios), input_path)
-
-    # Execute
-    executor = A2AExecutor(agent_url=agent_url, workflow_name=workflow_name)
-    executed = await executor.run(experiment)
-
-    # Write output
-    output_path = Path("data/experiments/executed_experiment.json")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(executed.model_dump_json(indent=2))
+    output_path = "data/experiments/executed_experiment.json"
+    executor = A2AExecutor(
+        agent_url=agent_url,
+        workflow_name=workflow_name,
+        input_path=input_path,
+        output_path=output_path,
+    )
+    await executor.run()
     logger.info("Wrote executed experiment to %s", output_path)
 
 
