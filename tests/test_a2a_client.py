@@ -130,7 +130,7 @@ async def test_send_step_text_only_history():
     assert len(result.turns) == 2
     assert result.turns[0].type == "human"
     assert result.turns[0].content == "Hello"
-    assert result.turns[1].type == "ai"
+    assert result.turns[1].type == "agent"
     assert result.turns[1].content == "Hi there!"
 
 
@@ -162,7 +162,7 @@ async def test_send_step_tool_calls_metadata():
 
     # turns: human, ai (tool_calls), ai (text)
     assert len(result.turns) == 3
-    assert result.turns[1].type == "ai"
+    assert result.turns[1].type == "agent"
     assert result.turns[1].tool_calls is not None
     assert len(result.turns[1].tool_calls) == 1
     assert result.turns[1].tool_calls[0].name == "get_weather"
@@ -200,12 +200,12 @@ async def test_send_step_tool_calls_datapart():
 
     # turns: human, ai (tool_call), tool (response), ai (text)
     assert len(result.turns) == 4
-    assert result.turns[1].type == "ai"
+    assert result.turns[1].type == "agent"
     assert result.turns[1].tool_calls is not None
     assert result.turns[1].tool_calls[0].name == "get_temp"
     assert result.turns[2].type == "tool"
     assert "22" in result.turns[2].content
-    assert result.turns[3].type == "ai"
+    assert result.turns[3].type == "agent"
     assert result.turns[3].content == "22 degrees"
 
 
@@ -227,7 +227,7 @@ async def test_send_step_artifact_fallback():
         result = await client.send_step("hello")
 
     assert len(result.turns) == 2
-    assert result.turns[1].type == "ai"
+    assert result.turns[1].type == "agent"
     assert result.turns[1].content == "Artifact text"
     assert result.response_text == "Artifact text"
 
@@ -253,7 +253,7 @@ async def test_send_step_error_handling():
         result = await client.send_step("hi")
 
     assert len(result.turns) == 2
-    assert result.turns[1].type == "ai"
+    assert result.turns[1].type == "agent"
     assert "ERROR" in result.turns[1].content
 
 

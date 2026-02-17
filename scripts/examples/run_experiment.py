@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import logging
-from uuid import uuid4
 
 import httpx
 from opentelemetry import trace
@@ -29,6 +29,12 @@ from schema.runtime import ExperimentRuntime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _content_hash(data: str, prefix: str = "") -> str:
+    """Generate a deterministic ID from content using SHA256."""
+    digest = hashlib.sha256(data.encode()).hexdigest()[:16]
+    return f"{prefix}{digest}" if prefix else digest
 
 
 class A2AExecutor:
@@ -51,6 +57,10 @@ class A2AExecutor:
         self._scenario_steps: list[list[ExecutedStep]] = []
         self._current_steps: list[ExecutedStep] = []
 
+        # Deterministic ID state
+        self._current_scenario_id: str = ""
+        self._step_index: int = 0
+
         # Reusable HTTP client and A2A step client (created once in run())
         self._http_client: httpx.AsyncClient | None = None
         self._a2a_client: A2AStepClient | None = None
@@ -65,8 +75,10 @@ class A2AExecutor:
         """Reset conversation state and start an OTel span for the scenario."""
         self._context_id = None
         self._current_steps = []
+        self._step_index = 0
 
-        scenario_id = uuid4().hex
+        scenario_id = _content_hash(f"{self.workflow_name}:{scenario.name}", prefix="scn_")
+        self._current_scenario_id = scenario_id
 
         # We cannot hold a span open across awaits easily, so we record
         # the trace_id from a short-lived span that acts as the scenario root.
@@ -95,8 +107,13 @@ class A2AExecutor:
         self._context_id = result.context_id
         turns = result.turns
 
+        step_id = _content_hash(
+            f"{self._current_scenario_id}:{step.input}:{self._step_index}", prefix="stp_"
+        )
+        self._step_index += 1
+
         executed_step = ExecutedStep(
-            id=uuid4().hex,
+            id=step_id,
             input=step.input,
             reference=step.reference,
             custom_values=step.custom_values,
@@ -155,7 +172,7 @@ class A2AExecutor:
 
         return ExecutedExperiment(
             **result.model_dump(exclude={"scenarios"}),
-            id=uuid4().hex,
+            id=self.workflow_name,
             scenarios=executed_scenarios,
         )
 

@@ -97,7 +97,7 @@ class A2AStepClient:
 
         except Exception as e:
             logger.error("Error querying agent for step '%s': %s", user_input[:50], e)
-            turns.append(Turn(content=f"ERROR: {e}", type="ai"))
+            turns.append(Turn(content=f"ERROR: {e}", type="agent"))
             return A2AStepResult(turns=turns, response_text=f"ERROR: {e}", context_id=captured_context_id)
 
         response_text = ""
@@ -156,7 +156,7 @@ def _extract_turns_from_history(history: list[Any], turns: list[Turn]) -> str:
                         tool_responses.append(str(actual_part.data.get("response", {})))
 
             if tool_calls_in_msg:
-                turns.append(Turn(content="", type="ai", tool_calls=tool_calls_in_msg))
+                turns.append(Turn(content="", type="agent", tool_calls=tool_calls_in_msg))
                 logger.info("  Extracted %d tool call(s)", len(tool_calls_in_msg))
 
             if tool_responses:
@@ -165,7 +165,7 @@ def _extract_turns_from_history(history: list[Any], turns: list[Turn]) -> str:
                 logger.info("  Extracted %d tool response(s)", len(tool_responses))
 
             if text_content:
-                turns.append(Turn(content=text_content, type="ai"))
+                turns.append(Turn(content=text_content, type="agent"))
                 response_text = text_content
 
     return response_text
@@ -178,5 +178,5 @@ def _extract_turns_from_artifacts(task: Any, turns: list[Turn]) -> str:
     if artifacts and artifacts[0].get("parts"):
         output_text = artifacts[0]["parts"][0].get("text", "")
     if output_text:
-        turns.append(Turn(content=output_text, type="ai"))
+        turns.append(Turn(content=output_text, type="agent"))
     return output_text

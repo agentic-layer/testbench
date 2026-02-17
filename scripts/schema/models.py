@@ -37,7 +37,7 @@ class Turn(BaseModel):
     """A single turn in a multi-turn conversation."""
 
     content: str
-    type: Literal["human", "ai", "tool"]
+    type: Literal["human", "agent", "tool"]
     tool_calls: list[TurnToolCall] | None = None
 
 
