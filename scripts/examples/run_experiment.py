@@ -14,14 +14,12 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 import httpx
-from a2a.types import Message, Part, Role, TextPart
 from opentelemetry import trace
 from otel_setup import setup_otel
-from run import initialize_client
+from schema.a2a_client import A2AStepClient
 from schema.models import (
     ExecutedExperiment,
     ExecutedScenario,
@@ -29,8 +27,6 @@ from schema.models import (
     Experiment,
     Scenario,
     Step,
-    Turn,
-    TurnToolCall,
 )
 from schema.runtime import ExperimentRuntime
 
@@ -56,8 +52,9 @@ class A2AExecutor:
         self._scenario_steps: list[list[ExecutedStep]] = []
         self._current_steps: list[ExecutedStep] = []
 
-        # Reusable HTTP client (created once in run())
+        # Reusable HTTP client and A2A step client (created once in run())
         self._http_client: httpx.AsyncClient | None = None
+        self._a2a_client: A2AStepClient | None = None
 
         self._tracer = trace.get_tracer("testbench.run_experiment")
 
@@ -91,52 +88,13 @@ class A2AExecutor:
 
     async def on_step(self, step: Step, scenario: Scenario) -> ExecutedStep:
         """Send step.input to the agent and return an ExecutedStep with turns."""
-        assert self._http_client is not None, "HTTP client not initialised"
-
-        a2a_client = await initialize_client(self.agent_url, self._http_client)
-
-        message = Message(
-            role=Role.user,
-            parts=[Part(root=TextPart(text=step.input))],
-            message_id=uuid4().hex,
-            context_id=self._context_id,
-        )
+        assert self._a2a_client is not None, "A2A client not initialised"
 
         logger.info("  Step: %s", step.input[:80])
 
-        output_text = ""
-        turns: list[Turn] = [Turn(content=step.input, type="human")]
-
-        try:
-            async for response in a2a_client.send_message(message):
-                if not isinstance(response, tuple):
-                    logger.warning("Unexpected response type: %s", type(response))
-                    continue
-
-                task, _ = response
-                if task is None:
-                    continue
-
-                # Capture context_id for subsequent steps
-                if self._context_id is None and task.context_id:
-                    self._context_id = task.context_id
-                    logger.info("  Captured context_id: %s", self._context_id)
-
-                # Extract response text from artifacts
-                artifacts: list[dict[str, Any]] = (
-                    task.model_dump(mode="json", include={"artifacts"}).get("artifacts", [])
-                )
-                if artifacts and artifacts[0].get("parts"):
-                    output_text = artifacts[0]["parts"][0].get("text", "")
-
-        except Exception as e:
-            logger.error("Error querying agent for step '%s': %s", step.input[:50], e)
-            output_text = f"ERROR: {e}"
-
-        # Build AI turn, including tool_calls from task metadata if present
-        tool_calls: list[TurnToolCall] | None = None
-        if output_text:
-            turns.append(Turn(content=output_text, type="ai", tool_calls=tool_calls))
+        result = await self._a2a_client.send_step(step.input, self._context_id)
+        self._context_id = result.context_id
+        turns = result.turns
 
         executed_step = ExecutedStep(
             id=uuid4().hex,
@@ -172,7 +130,9 @@ class A2AExecutor:
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(300)) as client:
             self._http_client = client
+            self._a2a_client = A2AStepClient(self.agent_url, client)
             result = await runtime.run(experiment)
+            self._a2a_client = None
             self._http_client = None
 
         # Convert Scenario → ExecutedScenario with accumulated metadata.

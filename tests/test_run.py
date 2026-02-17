@@ -60,8 +60,8 @@ async def test_initialize_client_creates_client(monkeypatch):
     def mock_factory_init(config=None):
         return MockFactory()
 
-    monkeypatch.setattr("run.minimal_agent_card", mock_agent_card)
-    monkeypatch.setattr("run.ClientFactory", mock_factory_init)
+    monkeypatch.setattr("schema.a2a_client.minimal_agent_card", mock_agent_card)
+    monkeypatch.setattr("schema.a2a_client.ClientFactory", mock_factory_init)
 
     # Create mock httpx client
     class MockHttpxClient:

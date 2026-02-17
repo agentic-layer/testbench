@@ -8,10 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from a2a.client.client import Client, ClientConfig
-from a2a.client.client_factory import ClientFactory, minimal_agent_card
 from a2a.types import (
-    AgentCard,
     Message,
     Part,
     Role,
@@ -22,6 +19,7 @@ from opentelemetry.trace import Status, StatusCode
 from otel_setup import setup_otel
 from pydantic import BaseModel
 from ragas import Dataset, experiment
+from schema.a2a_client import initialize_client
 
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)
@@ -63,22 +61,6 @@ def validate_multi_turn_input(user_input: list) -> list[dict]:
             raise ValueError(f"Message {i} has invalid type: {msg['type']}")
 
     return user_input
-
-
-async def initialize_client(agent_url: str, client: httpx.AsyncClient) -> Client:
-    """Initialize the A2A client with a minimal agent card."""
-    logger.info(f"Initializing A2A client for: {agent_url}")
-
-    # Create a minimal agent card with the provided URL
-    agent_card: AgentCard = minimal_agent_card(agent_url)
-
-    config: ClientConfig = ClientConfig(httpx_client=client)
-    factory: ClientFactory = ClientFactory(config)
-    a2a_client: Client = factory.create(agent_card)
-
-    logger.info("A2A client initialized successfully")
-
-    return a2a_client
 
 
 def _get_sample_hash(sample: str | list | dict) -> str:
