@@ -5,7 +5,7 @@ import logging
 from typing import Any, Union
 
 import ragas.metrics.collections as metrics_module
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from ragas.messages import AIMessage, HumanMessage, ToolCall as RagasToolCall, ToolMessage
 from ragas.metrics.collections import BaseMetric
 from schema.models import ExecutedStep, ToolCall, Turn
 
@@ -21,7 +21,13 @@ class RagasMetricCallable:
     def __init__(self, metric: BaseMetric) -> None:
         self._metric = metric
         # Inspect ascore signature to know which params it accepts
-        self._expected_params = set(inspect.signature(metric.ascore).parameters.keys())
+        sig = inspect.signature(metric.ascore)
+        self._expected_params = set(sig.parameters.keys())
+        # Check whether ascore expects user_input as list (multi-turn) or str (single-turn)
+        user_input_param = sig.parameters.get("user_input")
+        self._expects_list_input = user_input_param is not None and "list" in str(
+            user_input_param.annotation
+        ).lower()
 
     async def __call__(self, sample: ExecutedStep, **metric_args: Any) -> MetricResult:
         """Evaluate a sample using the wrapped RAGAS metric.
@@ -45,18 +51,17 @@ class RagasMetricCallable:
         """Map an ExecutedStep to the dict format RAGAS ascore expects."""
         params: dict[str, Any] = {}
 
-        # Multi-turn: convert turns to LangChain messages
-        if sample.turns:
+        # Multi-turn: convert turns to RAGAS messages or use single input string for single-turn metrics
+        if self._expects_list_input:
             params["user_input"] = self._map_user_input(sample.turns)
         else:
             params["user_input"] = sample.input
 
-        # Extract RAGAS-specific fields from custom_values
-        cv = sample.custom_values or {}
-        if "response" in cv:
-            params["response"] = cv["response"]
-        if "retrieved_contexts" in cv:
-            params["retrieved_contexts"] = cv["retrieved_contexts"]
+        last_ai = next(
+            (t.content for t in reversed(sample.turns) if t.type == "agent"),
+            sample.input,
+        )
+        params["response"] = last_ai
 
         # Reference
         if sample.reference:
@@ -75,26 +80,29 @@ class RagasMetricCallable:
             if turn.type == "human":
                 mapped.append(HumanMessage(content=turn.content))
             elif turn.type == "agent":
-                mapped.append(AIMessage(content=turn.content))
+                tool_calls = [
+                    RagasToolCall(name=tc.name, args=tc.args)
+                    for tc in (turn.tool_calls or [])
+                ]
+                mapped.append(AIMessage(content=turn.content, tool_calls=tool_calls or None))
             elif turn.type == "tool":
                 tool_call_id = ""
                 if turn.tool_calls:
                     tool_call_id = turn.tool_calls[0].name
-                mapped.append(ToolMessage(content=turn.content, tool_call_id=tool_call_id))
+                mapped.append(ToolMessage(content=turn.content))
             else:
                 logger.warning(f"Unknown turn type '{turn.type}', treating as human message")
                 mapped.append(HumanMessage(content=turn.content))
         return mapped
 
     @staticmethod
-    def _map_reference_tool_calls(tool_calls: list[ToolCall]) -> list[dict[str, Any]]:
-        """Convert ToolCall models to RAGAS-expected dict format."""
+    def _map_reference_tool_calls(tool_calls: list[ToolCall]) -> list[ToolCall]:
+        """Convert ToolCall models to RAGAS-expected format."""
         return [
-            {
-                "name": tc.name,
-                "args": tc.arguments,
-                "id": "",
-            }
+            RagasToolCall(
+                name=tc.name,
+                args=tc.arguments
+            )
             for tc in tool_calls
         ]
 
