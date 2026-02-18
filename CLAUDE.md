@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Purpose
 
-Kubernetes-native RAGAS-based agent evaluation system that executes test datasets via A2A protocol and publishes metrics via OTLP. Part of the Agentic Layer platform for automated agent testing and quality assurance.
+Kubernetes-native agent evaluation system that executes test datasets via A2A protocol, evaluates responses using a generic metrics framework (with RAGAS as the default adapter), and publishes metrics via OTLP. Part of the Agentic Layer platform for automated agent testing and quality assurance.
 
 ---
 
@@ -54,43 +54,34 @@ export GOOGLE_API_KEY="your-api-key"            # Required for Gemini models
 ### Running the 4-Phase Pipeline Locally
 
 ```shell
-# Phase 1: Download and convert dataset to RAGAS format
-uv run python3 scripts/setup.py "http://localhost:11020/dataset.csv"
+# Phase 1: Download and convert dataset to Experiment JSON
+uv run python3 testbench/setup.py "http://localhost:11020/dataset.csv"
 
 # Phase 2: Execute queries through agent via A2A protocol
-uv run python3 scripts/run.py "http://localhost:11010"
+uv run python3 testbench/run.py "http://localhost:11010" "my-workflow"
 
-# Phase 3: Evaluate responses using RAGAS metrics (uses default config)
-uv run python3 scripts/evaluate.py gemini-2.5-flash-lite
+# Phase 3: Evaluate responses using metrics (with model override)
+uv run python3 testbench/evaluate.py --model gemini-2.5-flash-lite
 
-# Or specify a custom config
-# uv run python3 scripts/evaluate.py gemini-2.5-flash-lite --metrics-config examples/metrics_advanced.json
+# Phase 4: Publish metrics to OTLP endpoint
+OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" uv run python3 testbench/publish.py "workflow-name" "exec-001" 1
 
-# Phase 4: Publish metrics to OTLP endpoint (requires execution_id and execution_number)
-OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" uv run python3 scripts/publish.py "workflow-name" "exec-001" 1
-
-# Optional: Generate HTML visualization report (requires workflow metadata)
-uv run python3 scripts/visualize.py "weather-assistant-test" "exec-001" 1
+# Optional: Generate HTML visualization report
+uv run python3 testbench/visualize.py "weather-assistant-test" "exec-001" 1
 ```
 
 ### HTML Visualization
 
 Generate a comprehensive HTML dashboard from evaluation results for local viewing and sharing.
 
-**BREAKING CHANGE:** visualize.py now requires workflow metadata as mandatory positional arguments (matching publish.py pattern).
-
 ```shell
 # Basic usage (after running evaluate.py)
-uv run python3 scripts/visualize.py weather-assistant-test exec-001 1
+uv run python3 testbench/visualize.py weather-assistant-test exec-001 1
 
 # Custom input/output paths
-uv run python3 scripts/visualize.py weather-assistant-test exec-001 1 \
-  --input data/results/evaluation_scores.json \
+uv run python3 testbench/visualize.py weather-assistant-test exec-001 1 \
+  --input data/experiments/evaluated_experiment.json \
   --output reports/exec-001.html
-
-# Complete pipeline example
-uv run python3 scripts/evaluate.py gemini-2.5-flash-lite
-uv run python3 scripts/visualize.py weather-agent exec-123 5
 ```
 
 **Required Arguments:**
@@ -99,129 +90,18 @@ uv run python3 scripts/visualize.py weather-agent exec-123 5
 - `execution_number` - Testkube execution number for this workflow run
 
 **Optional Arguments:**
-- `--input` - Path to evaluation_scores.json (default: `data/results/evaluation_scores.json`)
+- `--input` - Path to evaluated experiment JSON (default: `data/experiments/evaluated_experiment.json`)
 - `--output` - Path for output HTML file (default: `data/results/evaluation_report.html`)
 
 **Features:**
-- **Summary Cards**: Total samples, metrics count, token usage, cost
+- **Summary Cards**: Total samples, metrics count, scenario overview
 - **Workflow Metadata**: Displays workflow name, execution ID, and execution number
 - **Overall Scores Chart**: Horizontal bar chart showing mean score per metric
 - **Metric Distributions**: Histograms showing score distributions with statistics
-- **Detailed Results Table**: All samples with metrics, searchable and sortable
+- **Detailed Results Table**: All steps with evaluations, searchable and sortable
 - **Multi-Turn Support**: Chat-bubble visualization for conversational datasets
 - **Self-Contained HTML**: Single file with embedded Chart.js, works offline
 - **Responsive Design**: Works on desktop and tablet, print-friendly
-
-**Output:** `data/results/evaluation_report.html` (default)
-```
-
-### Metrics Configuration
-
-**BREAKING CHANGE:** Metrics must now be specified via configuration file using `--metrics-config`.
-
-#### Quick Start
-
-**Using Default Config:**
-```shell
-# Uses examples/metrics_simple.json by default
-uv run python3 scripts/evaluate.py gemini-2.5-flash-lite
-```
-
-**Using Custom Config:**
-```shell
-# Simple metrics (pre-configured instances)
-uv run python3 scripts/evaluate.py gemini-2.5-flash-lite --metrics-config examples/metrics_simple.json
-
-# Advanced metrics (custom AspectCritic definitions)
-uv run python3 scripts/evaluate.py gemini-2.5-flash-lite --metrics-config examples/metrics_advanced.json
-```
-
-#### Configuration File Format
-
-Both JSON and YAML formats are supported:
-
-**JSON Example** (`examples/metrics_simple.json`):
-```json
-{
-  "version": "1.0",
-  "metrics": [
-    {"type": "instance", "name": "faithfulness"},
-    {"type": "instance", "name": "answer_relevancy"},
-    {"type": "instance", "name": "context_precision"}
-  ]
-}
-```
-
-**Advanced Configuration** (`examples/metrics_advanced.json`):
-```json
-{
-  "version": "1.0",
-  "metrics": [
-    {
-      "type": "instance",
-      "name": "faithfulness"
-    },
-    {
-      "type": "class",
-      "class_name": "AspectCritic",
-      "parameters": {
-        "name": "harmfulness",
-        "definition": "Does this contain harmful content?"
-      }
-    }
-  ]
-}
-```
-
-#### Available Metrics
-
-**Pre-configured Instances** (type: `instance`):
-- `faithfulness` - Measures factual consistency with contexts
-- `answer_relevancy` - Measures relevance of response to query
-- `answer_correctness` - Measures correctness vs reference
-- `answer_similarity` - Semantic similarity to reference
-- `context_precision` - Precision of retrieved contexts
-- `context_recall` - Recall of retrieved contexts
-- `context_entity_recall` - Entity-level context recall
-- `multimodal_faithness` - Faithfulness for multimodal content
-- `multimodal_relevance` - Relevance for multimodal content
-- `summarization_score` - Quality of summarization
-
-**Configurable Classes** (type: `class`):
-- `AspectCritic` - Custom aspect-based evaluation (REQUIRES: `name`, `definition`)
-- `Faithfulness` - Configurable faithfulness (OPTIONAL: `strictness`, `max_retries`)
-- `AnswerRelevancy` - Configurable relevancy (OPTIONAL: `strictness`)
-- Plus 30+ other classes
-
-To see all available metrics:
-```shell
-uv run python3 scripts/evaluate.py --help
-```
-
-#### Migration from Old CLI
-
-Old usage (NO LONGER WORKS):
-```shell
-# This will fail
-uv run python3 scripts/evaluate.py gemini-2.5-flash-lite faithfulness answer_relevancy
-```
-
-New usage:
-```shell
-# Create config file
-cat > my_metrics.json << EOF
-{
-  "version": "1.0",
-  "metrics": [
-    {"type": "instance", "name": "faithfulness"},
-    {"type": "instance", "name": "answer_relevancy"}
-  ]
-}
-EOF
-
-# Use config file
-uv run python3 scripts/evaluate.py gemini-2.5-flash-lite --metrics-config my_metrics.json
-```
 
 ### Testkube Execution
 
@@ -230,7 +110,7 @@ uv run python3 scripts/evaluate.py gemini-2.5-flash-lite --metrics-config my_met
 kubectl testkube run testworkflow ragas-evaluation-workflow \
     --config datasetUrl="http://data-server.data-server:8000/dataset.csv" \
     --config agentUrl="http://weather-agent.sample-agents:8000" \
-    --config metrics="nv_accuracy context_recall" \
+    --config model="gemini-2.5-flash-lite" \
     -n testkube
 
 # Watch workflow execution
@@ -256,53 +136,68 @@ make run
 
 ### 4-Phase Evaluation Pipeline
 
-**Core Concept**: Sequential pipeline where each phase reads input from previous phase's output via shared `/app/data` volume.
+**Core Concept**: Sequential pipeline where each phase reads input from previous phase's output via shared `/app/data` volume. Uses typed Pydantic models (`Experiment` → `ExecutedExperiment` → `EvaluatedExperiment`) with JSON serialisation.
 
-**Phase 1: Setup** (`scripts/setup.py`)
+**Phase 1: Setup** (`testbench/setup.py`)
 - **Input**: Dataset URL (CSV, JSON, or Parquet)
-- **Output**: `data/datasets/ragas_dataset.jsonl` (RAGAS format)
-- **Purpose**: Downloads external dataset, converts to RAGAS schema with `user_input`, `retrieved_contexts`, `reference` fields
+- **Output**: `data/datasets/experiment.json` (Experiment model)
+- **Purpose**: Downloads external dataset, maps rows to `Step` objects with `input`, `reference`, and `custom_values` fields
 
-**Phase 2: Run** (`scripts/run.py`)
-- **Input**: `data/datasets/ragas_dataset.jsonl` + Agent URL
-- **Output**: `data/experiments/ragas_experiment.jsonl` (adds `response` field for single-turn, full conversation for multi-turn)
-- **Purpose**: Sends queries to agent via A2A protocol using `a2a-sdk`, records agent responses
-- **Auto-Detection**: Detects single-turn vs multi-turn format and routes to appropriate experiment function
-- **Multi-Turn Support**: For conversational datasets, sequentially queries agent for each user message while maintaining context_id
+**Phase 2: Run** (`testbench/run.py`)
+- **Input**: `data/datasets/experiment.json` + Agent URL + workflow name
+- **Output**: `data/experiments/executed_experiment.json` (ExecutedExperiment model)
+- **Purpose**: Sends queries to agent via A2A protocol using `A2AStepClient`, records agent responses as `Turn` objects
+- **Pattern**: Uses `ExperimentRuntime` with hooks (`before_scenario`, `on_step`, `after_scenario`)
+- **Tracing**: Creates OpenTelemetry spans per scenario with trace IDs
 
-**Phase 3: Evaluate** (`scripts/evaluate.py`)
-- **Input**: `data/experiments/ragas_experiment.jsonl` + LLM model + metrics config file
-- **Output**: `data/results/evaluation_scores.json`
-- **Purpose**: Calculates RAGAS metrics using LLM-as-a-judge via AI Gateway
-- **Pattern**: Uses RAGAS @experiment() decorator for row-by-row async evaluation
-- **Metrics**: Configured via JSON/YAML file, uses BaseMetric from ragas.metrics
+**Phase 3: Evaluate** (`testbench/evaluate.py`)
+- **Input**: `data/experiments/executed_experiment.json` + optional `--model` override
+- **Output**: `data/experiments/evaluated_experiment.json` (EvaluatedExperiment model)
+- **Purpose**: Calculates metrics using LLM-as-a-judge via generic metrics framework
+- **Pattern**: Uses `ExperimentRuntime` with `MetricEvaluator` hooks
+- **Metrics**: Configured via `Metric` objects on each step; uses `GenericMetricsRegistry` with RAGAS adapter
 
-**Phase 4: Publish** (`scripts/publish.py`)
-- **Input**: `data/results/evaluation_scores.json` + workflow name + execution ID + execution number
+**Phase 4: Publish** (`testbench/publish.py`)
+- **Input**: `data/experiments/evaluated_experiment.json` + workflow name + execution ID + execution number
 - **Output**: Metrics published to OTLP endpoint (configured via `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable)
-- **Purpose**: Sends evaluation results to observability backend (LGTM/Grafana) via OpenTelemetry
+- **Purpose**: Sends per-step evaluation scores to observability backend (LGTM/Grafana) via OpenTelemetry
 
-**Optional: Visualize** (`scripts/visualize.py`)
-- **Input**: `data/results/evaluation_scores.json`
+**Optional: Visualize** (`testbench/visualize.py`)
+- **Input**: `data/experiments/evaluated_experiment.json`
 - **Output**: `data/results/evaluation_report.html` (self-contained HTML dashboard)
-- **Purpose**: Generates comprehensive HTML report with charts, tables, and statistics for local viewing and sharing
-- **Features**: Summary cards, bar charts, metric distributions, searchable results table
-- **Note**: Runs independently of Phase 4 (publish.py), can be used for local development without OTLP backend
+- **Purpose**: Generates comprehensive HTML report with charts, tables, and statistics
+- **Note**: Runs independently of Phase 4, can be used for local development without OTLP backend
 
 ### Data Flow
 
 ```
 External Dataset (CSV/JSON/Parquet)
   ↓ [setup.py]
-data/datasets/ragas_dataset.jsonl
-  ↓ [run.py + A2A Client]
-data/experiments/ragas_experiment.jsonl
-  ↓ [evaluate.py + RAGAS + AI Gateway]
-data/results/evaluation_scores.json
+data/datasets/experiment.json  (Experiment)
+  ↓ [run.py + A2AStepClient]
+data/experiments/executed_experiment.json  (ExecutedExperiment)
+  ↓ [evaluate.py + GenericMetricsRegistry]
+data/experiments/evaluated_experiment.json  (EvaluatedExperiment)
   ├─→ [publish.py + OTLP]
   │   Observability Backend (Grafana)
   └─→ [visualize.py]
       data/results/evaluation_report.html (Local Visualization)
+```
+
+### Pydantic Model Hierarchy
+
+```
+Step(input, reference, custom_values, metrics)
+  └→ ExecutedStep(+id, turns)
+       └→ EvaluatedStep(+evaluations: list[Evaluation])
+
+Scenario(name, steps)
+  └→ ExecutedScenario(+id, trace_id)
+       └→ EvaluatedScenario(+evaluations)
+
+Experiment(llm_as_a_judge_model, default_threshold, scenarios)
+  └→ ExecutedExperiment(+id)
+       └→ EvaluatedExperiment
 ```
 
 ### Kubernetes Integration (Testkube)
@@ -321,8 +216,7 @@ data/results/evaluation_scores.json
 **Key Workflow Parameters**:
 - `datasetUrl` - HTTP URL to test dataset
 - `agentUrl` - A2A endpoint of agent to evaluate
-- `model` - LLM model for RAGAS evaluation (e.g., `gemini-2.5-flash-lite`)
-- `metrics` - Space-separated RAGAS metrics (e.g., `faithfulness context_recall`)
+- `model` - LLM model for evaluation (e.g., `gemini-2.5-flash-lite`)
 - `otlpEndpoint` - OpenTelemetry collector URL (default: `http://lgtm.monitoring:4318`)
 - `image` - Docker image to use (default: `ghcr.io/agentic-layer/testbench/testworkflows:latest`)
 
@@ -330,42 +224,31 @@ data/results/evaluation_scores.json
 
 ## Key Technology Integrations
 
-### RAGAS Framework
-- **Purpose**: LLM-as-a-judge evaluation framework for RAG systems
-- **Evaluation Approach**: Uses LLM to assess quality metrics beyond simple exact-match comparison
-- **Evaluation Pattern**: Uses @experiment() decorator for row-by-row async processing
-- **Metrics Base Class**: BaseMetric from ragas.metrics (auto-discovered by MetricsRegistry)
-- **Available Metrics**: All BaseMetric subclasses (e.g., Faithfulness, AnswerRelevancy, ContextPrecision, ContextRecall, AspectCritic)
-- **Cost Tracking**: Token usage tracking via @experiment() pattern (currently TODO - returns 0)
+### Generic Metrics Framework
+- **Architecture**: `FrameworkAdapter` base class with pluggable implementations
+- **Registry**: `GenericMetricsRegistry` lazily loads framework adapters
+- **Default Adapter**: RAGAS (`metrics/ragas/adapter.py`) — translates `ExecutedStep` into RAGAS `EvaluationDataset` samples
+- **Protocol**: `MetricCallable` protocol and `MetricResult` dataclass in `metrics/protocol.py`
 - **LLM Access**: Routes through AI Gateway (LiteLLM) configured via `OPENAI_API_BASE` environment variable
 
 ### A2A Protocol (Agent-to-Agent)
 - **Purpose**: Platform-agnostic JSON-RPC protocol for agent communication
-- **Client Library**: `a2a-sdk` Python package
-- **Usage in Testbench**: `run.py` uses `A2AClient` to send `user_input` prompts to agent's A2A endpoint
-- **Response Handling**: Agent responses stored in `response` field of experiment JSONL
+- **Client Library**: `a2a-sdk` Python package, wrapped by `schema/a2a_client.py` (`A2AStepClient`)
+- **Usage in Testbench**: `run.py` uses `A2AStepClient.send_step()` to query agents
+- **Response Handling**: Agent responses recorded as `Turn` objects with `content` and `type`
 - **Context Management**: A2A `context_id` field maintains conversation state across multiple turns
 
-### Multi-Turn Conversation Support
-- **Purpose**: Evaluate agents in conversational scenarios with multiple back-and-forth exchanges
-- **Detection**: `run.py` automatically detects dataset type by inspecting `user_input` field type (string = single-turn, list = multi-turn)
-- **Experiment Functions**:
-  - `single_turn_experiment()`: Handles traditional question-answer format
-  - `multi_turn_experiment()`: Handles conversational interactions
-- **Sequential Query Strategy**: For each human message in the conversation:
-  1. Send message to agent via A2A protocol
-  2. Capture agent's response and extract `context_id`
-  3. Use `context_id` in subsequent messages to maintain conversation context
-  4. After final turn, extract full conversation history from `task.history`
-- **Data Format**: Multi-turn datasets use list of message dicts: `[{"content": "...", "type": "human"}, {"content": "...", "type": "ai"}, ...]`
-- **Tool Calls**: Extracts tool call information from A2A `message.metadata` if available
-- **Observability**: Creates parent span for conversation with child spans for each turn
+### ExperimentRuntime
+- **Purpose**: Generic runtime that iterates `Experiment.scenarios[].steps[]` and calls user-provided hooks
+- **Hooks**: `before_run`, `before_scenario`, `on_step`, `after_scenario`
+- **Location**: `schema/runtime.py`
+- **Used by**: Both `run.py` (`A2AExecutor`) and `evaluate.py` (`MetricEvaluator`)
 
 ### OpenTelemetry (OTLP)
 - **Purpose**: Standard protocol for publishing observability data
 - **Transport**: HTTP/protobuf to OTLP collector endpoint (port 4318)
-- **Metrics Published**: Overall scores, individual results, token counts, costs
-- **Labeling**: Each metric labeled with `workflowName` for filtering in Grafana
+- **Metrics Published**: Per-step evaluation gauge with metric name, score, and step/scenario attributes
+- **Labeling**: Each metric labeled with `workflow_name` for filtering in Grafana
 
 ### Tilt (Local Development)
 - **Purpose**: Local Kubernetes development environment
@@ -380,47 +263,54 @@ data/results/evaluation_scores.json
 
 ## Code Organization
 
-### Core Scripts (scripts/)
+### Core Scripts (testbench/)
 All scripts follow same pattern: parse arguments → read input file(s) → process → write output file
 
 - **`setup.py`**: Dataset download and conversion logic
   - Supports CSV (with quoted array parsing), JSON, Parquet formats
-  - Validates required fields: `user_input`, `retrieved_contexts`, `reference`
-  - Creates parent directories if missing
+  - Maps DataFrame rows to `Step` objects with `Reference` and `custom_values`
+  - Output: `data/datasets/experiment.json`
 
-- **`run.py`**: Agent query execution
-  - Uses `A2AClient` from `a2a-sdk` for async HTTP requests
-  - Batch processes dataset entries
-  - Adds `response` field to each entry
+- **`run.py`**: Agent query execution via `A2AExecutor`
+  - Uses `A2AStepClient` for async A2A protocol requests
+  - Creates OpenTelemetry spans per scenario
+  - Records agent responses as `Turn` objects in `ExecutedStep`
 
-- **`evaluate.py`**: RAGAS metric calculation
-  - Uses RAGAS @experiment() decorator pattern for async evaluation
-  - Loads metrics from config file using MetricsRegistry (discovers BaseMetric subclasses)
-  - Configures LangChain OpenAI wrapper to use AI Gateway
-  - Evaluates each row asynchronously, calculates metric scores
-  - Formats results: computes overall scores (means), preserves custom fields
-  - Note: Token tracking via @experiment() pattern is TODO (currently returns 0)
+- **`evaluate.py`**: Metric evaluation via `MetricEvaluator`
+  - Uses `GenericMetricsRegistry` to resolve metric callables
+  - Supports `--model` CLI arg to override `experiment.llm_as_a_judge_model`
+  - Produces `Evaluation` objects (metric + result with score and pass/fail)
 
 - **`publish.py`**: OTLP metric publishing
-  - Converts evaluation scores to OpenTelemetry metrics
-  - Sends via HTTP to OTLP collector
+  - Reads `EvaluatedExperiment`, iterates `scenarios → steps → evaluations`
+  - Creates gauge metrics per evaluation with step/scenario attributes
   - Uses workflow name as metric label
 
 - **`visualize.py`**: HTML visualization generation
-  - Reads `evaluation_scores.json` and generates self-contained HTML dashboard
+  - Reads `EvaluatedExperiment` and generates self-contained HTML dashboard
   - Creates summary cards, bar charts, metric distributions, and results table
   - Uses Chart.js via CDN for interactive visualizations
-  - Inline CSS for single-file distribution
-  - Includes search functionality for results table
+
+### Schema Package (testbench/schema/)
+- **`models.py`**: Full Pydantic model hierarchy (Step → ExecutedStep → EvaluatedStep, etc.)
+- **`runtime.py`**: `ExperimentRuntime` — generic hook-based experiment iterator
+- **`a2a_client.py`**: `A2AStepClient` — thin wrapper around A2A SDK
+
+### Metrics Package (testbench/metrics/)
+- **`protocol.py`**: `MetricCallable` protocol, `MetricResult` dataclass
+- **`adapter.py`**: Abstract `FrameworkAdapter` base class
+- **`registry.py`**: `GenericMetricsRegistry` (lazy-loads adapters)
+- **`ragas/adapter.py`**: RAGAS-specific `RagasFrameworkAdapter`
+- **`ragas/translation.py`**: `dict_to_executed_step` helper for RAGAS data translation
 
 ### Test Organization
 
 **Unit Tests (`tests/`)**:
-- One test file per script: `test_setup.py`, `test_run.py`, `test_evaluate.py`, `test_publish.py`, `test_visualize.py`
+- One test file per script: `test_setup.py`, `test_run.py`, `test_evaluate.py`, `test_evaluate_experiment.py`, `test_publish.py`, `test_visualize.py`
+- Additional: `test_a2a_client.py`, `test_metrics.py`
 - Uses pytest with async support (`pytest-asyncio`)
-- Mocks external dependencies: HTTP requests (`httpx.AsyncClient`), A2A client, RAGAS framework
+- Mocks external dependencies: A2A client, metrics registry, OTLP
 - Uses `tmp_path` fixture for file I/O testing
-- Test data samples in `tests/test_data/`
 
 **E2E Test (`tests_e2e/test_e2e.py`)**:
 - Runs complete 4-phase pipeline in sequence
@@ -462,24 +352,11 @@ All scripts follow same pattern: parse arguments → read input file(s) → proc
 - Enforces: Ruff formatting/linting, mypy, bandit
 - Manual run: `pre-commit run --all-files`
 
-### Adding New RAGAS Metrics
-Metrics are now automatically discovered via MetricsRegistry if they inherit from BaseMetric:
-1. No code changes needed - MetricsRegistry auto-discovers all BaseMetric subclasses
-2. Add metric to your metrics config file (JSON/YAML) using "class" type with parameters
-3. Add test cases in `tests/test_evaluate.py` with mocked BaseMetric
-4. Example config:
-   ```json
-   {
-     "version": "1.0",
-     "metrics": [
-       {
-         "type": "class",
-         "class_name": "AspectCritic",
-         "parameters": {"name": "custom_aspect", "definition": "Your definition"}
-       }
-     ]
-   }
-   ```
+### Adding New Metrics
+Metrics are resolved through the `GenericMetricsRegistry`:
+1. Define `Metric(metric_name="...", threshold=0.8)` on each `Step` in the experiment JSON
+2. The registry delegates to the appropriate `FrameworkAdapter` (currently RAGAS)
+3. Add test cases in `tests/test_evaluate_experiment.py` with mocked metric callables
 
 ### Modifying Data Flow
 If changing intermediate file formats or locations:
@@ -574,11 +451,11 @@ Examples: `agent-samples/weather-agent`, showcase agents (`showcase-cross-sellin
 
 ## Important Constraints
 
-### RAGAS Metric Limitations
-- Most metrics require `retrieved_contexts` field in dataset
+### Metric Limitations
 - LLM-based metrics consume tokens and incur costs
 - Evaluation speed depends on AI Gateway throughput and model latency
 - Some metrics (e.g., `context_recall`) require `reference` ground truth
+- RAGAS-specific metrics may require `retrieved_contexts` in `custom_values`
 
 ### A2A Protocol Requirements
 - Agents must implement A2A JSON-RPC specification

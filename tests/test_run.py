@@ -1,722 +1,610 @@
 """
 Unit tests for run.py
 
-Tests the agent query execution and experiment functionality.
+Tests the A2AExecutor class and experiment execution functionality.
 """
 
-import os
-import shutil
+import json
 import sys
-import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "testbench"))
 
-from run import (
-    _validate_hash_uniqueness,
-    initialize_client,
-    main,
-    single_turn_experiment,
-    validate_multi_turn_input,
+from run import A2AExecutor, _content_hash, main
+from schema.a2a_client import A2AStepResult
+from schema.models import (
+    ExecutedExperiment,
+    ExecutedScenario,
+    ExecutedStep,
+    Scenario,
+    Step,
+    Turn,
 )
 
-
-# Fixtures
-@pytest.fixture
-def temp_dir():
-    """Create a temporary directory for tests"""
-    tmp = tempfile.mkdtemp()
-    original_cwd = Path.cwd()
-    yield tmp, original_cwd
-    shutil.rmtree(tmp, ignore_errors=True)
+# ---------------------------------------------------------------------------
+# Test _content_hash
+# ---------------------------------------------------------------------------
 
 
-# TestInitializeClient tests
+def test_content_hash_deterministic():
+    """Test that _content_hash produces deterministic output."""
+    data = "test-data"
+    hash1 = _content_hash(data)
+    hash2 = _content_hash(data)
+
+    assert hash1 == hash2
+    assert len(hash1) == 16  # SHA256 truncated to 16 chars
+
+
+def test_content_hash_different_inputs():
+    """Test that different inputs produce different hashes."""
+    hash1 = _content_hash("input1")
+    hash2 = _content_hash("input2")
+
+    assert hash1 != hash2
+
+
+def test_content_hash_with_prefix():
+    """Test that prefix is prepended to hash."""
+    data = "test-data"
+    hash_no_prefix = _content_hash(data)
+    hash_with_prefix = _content_hash(data, prefix="scn_")
+
+    assert hash_with_prefix == f"scn_{hash_no_prefix}"
+    assert hash_with_prefix.startswith("scn_")
+
+
+def test_content_hash_empty_prefix():
+    """Test that empty prefix works correctly."""
+    data = "test-data"
+    hash1 = _content_hash(data, prefix="")
+    hash2 = _content_hash(data)
+
+    assert hash1 == hash2
+
+
+# ---------------------------------------------------------------------------
+# Test A2AExecutor.on_step
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_initialize_client_creates_client(monkeypatch):
-    """Test that initialize_client creates a client correctly"""
+async def test_executor_on_step_success():
+    """Test that on_step correctly calls A2A client and returns ExecutedStep."""
+    executor = A2AExecutor(
+        agent_url="http://test-agent:8000",
+        workflow_name="test-workflow",
+        input_path="input.json",
+        output_path="output.json",
+    )
 
-    # Mock the agent card
-    class MockCard:
-        pass
+    # Mock the A2A client
+    mock_client = AsyncMock()
+    mock_result = A2AStepResult(
+        turns=[
+            Turn(content="What is the weather?", type="human"),
+            Turn(content="It's sunny today", type="agent"),
+        ],
+        response_text="It's sunny today",
+        context_id="ctx-123",
+    )
+    mock_client.send_step = AsyncMock(return_value=mock_result)
+    executor._a2a_client = mock_client
 
-    mock_card = MockCard()
+    # Set up scenario state
+    executor._current_scenario_id = "scn_test123"
+    executor._step_index = 0
+    executor._context_id = None
 
-    def mock_agent_card(url):
-        return mock_card
+    # Create test step and scenario
+    step = Step(input="What is the weather?", reference=None)
+    scenario = Scenario(name="Weather Test", steps=[step])
 
-    # Mock the factory and client
-    class MockClient:
-        pass
+    # Call on_step
+    result = await executor.on_step(step, scenario)
 
-    mock_client = MockClient()
+    # Verify A2A client was called correctly
+    mock_client.send_step.assert_called_once_with("What is the weather?", None)
 
-    class MockFactory:
-        def create(self, card):
-            return mock_client
+    # Verify ExecutedStep structure
+    assert isinstance(result, ExecutedStep)
+    assert result.input == "What is the weather?"
+    assert result.turns is not None
+    assert len(result.turns) == 2
+    assert result.turns[0].content == "What is the weather?"
+    assert result.turns[0].type == "human"
+    assert result.turns[1].content == "It's sunny today"
+    assert result.turns[1].type == "agent"
+    assert result.id is not None
+    assert result.id.startswith("stp_")
 
-    def mock_factory_init(config=None):
-        return MockFactory()
-
-    monkeypatch.setattr("schema.a2a_client.minimal_agent_card", mock_agent_card)
-    monkeypatch.setattr("schema.a2a_client.ClientFactory", mock_factory_init)
-
-    # Create mock httpx client
-    class MockHttpxClient:
-        pass
-
-    mock_httpx_client = MockHttpxClient()
-
-    # Call the function
-    result = await initialize_client("http://test-agent:8000", mock_httpx_client)
-
-    # Verify
-    assert result == mock_client
+    # Verify context_id was updated
+    assert executor._context_id == "ctx-123"
 
 
-# TestSingleTurnExperiment tests
 @pytest.mark.asyncio
-async def test_single_turn_experiment_success(monkeypatch):
-    """Test successful agent query execution"""
+async def test_executor_on_step_maintains_context():
+    """Test that on_step passes context_id from previous step."""
+    executor = A2AExecutor(
+        agent_url="http://test-agent:8000",
+        workflow_name="test-workflow",
+        input_path="input.json",
+        output_path="output.json",
+    )
 
-    # Mock the client
-    class MockTask:
-        def model_dump(self, **kwargs):
-            return {
-                "artifacts": [{"parts": [{"text": "Agent response text"}]}],
-                "history": [],
+    # Mock the A2A client
+    mock_client = AsyncMock()
+    mock_result = A2AStepResult(
+        turns=[
+            Turn(content="Follow-up question", type="human"),
+            Turn(content="Follow-up answer", type="agent"),
+        ],
+        response_text="Follow-up answer",
+        context_id="ctx-456",
+    )
+    mock_client.send_step = AsyncMock(return_value=mock_result)
+    executor._a2a_client = mock_client
+
+    # Set up scenario state with existing context_id
+    executor._current_scenario_id = "scn_test123"
+    executor._step_index = 1
+    executor._context_id = "ctx-123"
+
+    # Create test step and scenario
+    step = Step(input="Follow-up question", reference=None)
+    scenario = Scenario(name="Weather Test", steps=[step])
+
+    # Call on_step
+    await executor.on_step(step, scenario)
+
+    # Verify A2A client was called with existing context_id
+    mock_client.send_step.assert_called_once_with("Follow-up question", "ctx-123")
+
+
+@pytest.mark.asyncio
+async def test_executor_on_step_increments_index():
+    """Test that on_step increments step_index for deterministic IDs."""
+    executor = A2AExecutor(
+        agent_url="http://test-agent:8000",
+        workflow_name="test-workflow",
+        input_path="input.json",
+        output_path="output.json",
+    )
+
+    # Mock the A2A client
+    mock_client = AsyncMock()
+    mock_result = A2AStepResult(
+        turns=[Turn(content="question", type="human"), Turn(content="answer", type="agent")],
+        response_text="answer",
+        context_id="ctx-1",
+    )
+    mock_client.send_step = AsyncMock(return_value=mock_result)
+    executor._a2a_client = mock_client
+
+    # Set up scenario state
+    executor._current_scenario_id = "scn_test123"
+    executor._step_index = 0
+    executor._context_id = None
+
+    step = Step(input="question", reference=None)
+    scenario = Scenario(name="Test", steps=[step])
+
+    # Call on_step multiple times
+    result1 = await executor.on_step(step, scenario)
+    result2 = await executor.on_step(step, scenario)
+
+    # Verify IDs are different (due to incremented step_index)
+    assert result1.id != result2.id
+    assert executor._step_index == 2
+
+
+# ---------------------------------------------------------------------------
+# Test A2AExecutor.before_scenario
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_executor_before_scenario_resets_state():
+    """Test that before_scenario resets context_id and step_index."""
+    executor = A2AExecutor(
+        agent_url="http://test-agent:8000",
+        workflow_name="test-workflow",
+        input_path="input.json",
+        output_path="output.json",
+    )
+
+    # Set some state to be reset
+    executor._context_id = "old-context"
+    executor._step_index = 5
+
+    scenario = Scenario(name="Test Scenario", steps=[])
+
+    # Mock the tracer to avoid real OTel calls
+    with patch.object(executor._tracer, "start_span") as mock_span_factory:
+        mock_span = MagicMock()
+        mock_span_context = MagicMock()
+        mock_span_context.trace_id = 0x1234567890ABCDEF
+        mock_span.get_span_context.return_value = mock_span_context
+        mock_span_factory.return_value = mock_span
+
+        await executor.before_scenario(scenario)
+
+    # Verify state was reset
+    assert executor._context_id is None
+    assert executor._step_index == 0
+    assert executor._current_scenario_id is not None
+    assert executor._current_scenario_id.startswith("scn_")
+    assert executor._current_trace_id is not None
+
+
+@pytest.mark.asyncio
+async def test_executor_before_scenario_creates_span():
+    """Test that before_scenario creates an OTel span."""
+    executor = A2AExecutor(
+        agent_url="http://test-agent:8000",
+        workflow_name="test-workflow",
+        input_path="input.json",
+        output_path="output.json",
+    )
+
+    scenario = Scenario(name="Test Scenario", steps=[])
+
+    # Mock the tracer
+    with patch.object(executor._tracer, "start_span") as mock_span_factory:
+        mock_span = MagicMock()
+        mock_span_context = MagicMock()
+        mock_span_context.trace_id = 0xABCDEF1234567890
+        mock_span.get_span_context.return_value = mock_span_context
+        mock_span_factory.return_value = mock_span
+
+        await executor.before_scenario(scenario)
+
+        # Verify span was created and configured
+        mock_span_factory.assert_called_once_with("scenario: Test Scenario")
+        mock_span.set_attribute.assert_any_call("scenario.name", "Test Scenario")
+        mock_span.set_attribute.assert_any_call("workflow.name", "test-workflow")
+        mock_span.set_attribute.assert_any_call("agent.url", "http://test-agent:8000")
+        mock_span.end.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Test A2AExecutor.after_scenario
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_executor_after_scenario_sets_metadata():
+    """Test that after_scenario sets id and trace_id on executed scenario."""
+    executor = A2AExecutor(
+        agent_url="http://test-agent:8000",
+        workflow_name="test-workflow",
+        input_path="input.json",
+        output_path="output.json",
+    )
+
+    # Set up state
+    executor._current_scenario_id = "scn_abc123"
+    executor._current_trace_id = "trace_xyz789"
+
+    original = Scenario(name="Test Scenario", steps=[])
+    executed = ExecutedScenario(name="Test Scenario", steps=[])
+
+    await executor.after_scenario(original, executed)
+
+    # Verify metadata was set
+    assert executed.id == "scn_abc123"
+    assert executed.trace_id == "trace_xyz789"
+
+
+# ---------------------------------------------------------------------------
+# Test A2AExecutor.run (full flow)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_executor_run_full_flow(tmp_path):
+    """Test complete executor run with minimal experiment."""
+    # Create input experiment file
+    input_path = tmp_path / "input.json"
+    output_path = tmp_path / "output.json"
+
+    experiment_data = {
+        "scenarios": [
+            {
+                "name": "Test Scenario",
+                "steps": [
+                    {"input": "Hello", "reference": None},
+                    {"input": "How are you?", "reference": None},
+                ],
             }
-
-    mock_task = MockTask()
-
-    class MockClient:
-        async def send_message(self, message):
-            yield (mock_task, None)
-
-    mock_client = MockClient()
-
-    async def mock_init_client(agent_url, client):
-        return mock_client
-
-    # Mock httpx AsyncClient
-    class MockAsyncClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            pass
-
-    def mock_httpx_client(**kwargs):
-        return MockAsyncClient()
-
-    monkeypatch.setattr("run.initialize_client", mock_init_client)
-    monkeypatch.setattr("run.httpx.AsyncClient", mock_httpx_client)
-
-    # Create test row
-    test_row = {
-        "user_input": "What is the weather?",
-        "retrieved_contexts": ["Context about weather"],
-        "reference": "Expected answer",
+        ]
     }
+    input_path.write_text(json.dumps(experiment_data))
 
-    # Call the function
-    result = await single_turn_experiment.func(
-        test_row, agent_url="http://test-agent:8000", workflow_name="test-workflow"
+    executor = A2AExecutor(
+        agent_url="http://test-agent:8000",
+        workflow_name="test-workflow",
+        input_path=str(input_path),
+        output_path=str(output_path),
     )
 
-    # Verify result structure
-    assert "user_input" in result
-    assert "retrieved_contexts" in result
-    assert "reference" in result
-    assert "response" in result
-    assert result["user_input"] == "What is the weather?"
-    assert result["response"] == "Agent response text"
-
-
-@pytest.mark.asyncio
-async def test_single_turn_experiment_error(monkeypatch):
-    """Test agent query with error handling"""
-
-    # Mock client that raises an error
-    async def mock_init_client(agent_url, client):
-        raise Exception("Connection failed")
-
-    # Mock httpx AsyncClient
-    class MockAsyncClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            pass
-
-    def mock_httpx_client(**kwargs):
-        return MockAsyncClient()
-
-    monkeypatch.setattr("run.initialize_client", mock_init_client)
-    monkeypatch.setattr("run.httpx.AsyncClient", mock_httpx_client)
-
-    # Create test row
-    test_row = {
-        "user_input": "What is the weather?",
-        "retrieved_contexts": ["Context"],
-        "reference": "Answer",
-    }
-
-    # Call the function
-    result = await single_turn_experiment.func(
-        test_row, agent_url="http://test-agent:8000", workflow_name="test-workflow"
-    )
-
-    # Verify error is captured in response
-    assert "response" in result
-    assert "ERROR" in result["response"]
-    assert "Connection failed" in result["response"]
-
-
-# TestMain tests
-@pytest.mark.asyncio
-async def test_main_execution(temp_dir, monkeypatch):
-    """Test main function execution flow"""
-
-    tmp, original_cwd = temp_dir
-    os.chdir(tmp)
-
-    try:
-        # Create a mock dataset
-        class MockDataset:
-            def __len__(self):
-                return 2
-
-            def __getitem__(self, index):
-                # Return single-turn format for detection
-                return {"user_input": "Test question", "retrieved_contexts": [], "reference": "Answer"}
-
-        mock_dataset = MockDataset()
-
-        def mock_dataset_load(path, backend):
-            return mock_dataset
-
-        # Mock experiment results
-        class MockExperiment:
-            pass
-
-        mock_experiment = MockExperiment()
-
-        async def mock_arun(*args, **kwargs):
-            return mock_experiment
-
-        calls_to_load = []
-        calls_to_arun = []
-
-        def mock_dataset_load_tracked(**kwargs):
-            calls_to_load.append(kwargs)
-            return mock_dataset
-
-        async def mock_arun_tracked(*args, **kwargs):
-            calls_to_arun.append({"args": args, "kwargs": kwargs})
-            return mock_experiment
-
-        monkeypatch.setattr("run.Dataset.load", mock_dataset_load_tracked)
-        monkeypatch.setattr("run.single_turn_experiment.arun", mock_arun_tracked)
-
-        # Run main
-        await main("http://test-agent:8000", "test-workflow")
-
-        # Verify Dataset.load was called
-        assert len(calls_to_load) == 1
-
-        # Verify experiment was run
-        assert len(calls_to_arun) == 1
-
-        # Verify workflow_name was passed through to arun
-        assert calls_to_arun[0]["kwargs"]["workflow_name"] == "test-workflow"
-    finally:
-        os.chdir(original_cwd)
-
-
-def test_validate_multi_turn_input_success():
-    """Test validation with valid multi-turn input"""
-    user_input = [
-        {"content": "Hello", "type": "human"},
-        {"content": "Hi there!", "type": "ai"},
-        {"content": "How are you?", "type": "human"},
+    # Mock A2AStepClient.send_step
+    mock_results = [
+        A2AStepResult(
+            turns=[Turn(content="Hello", type="human"), Turn(content="Hi there", type="agent")],
+            response_text="Hi there",
+            context_id="ctx-1",
+        ),
+        A2AStepResult(
+            turns=[Turn(content="How are you?", type="human"), Turn(content="I'm good", type="agent")],
+            response_text="I'm good",
+            context_id="ctx-1",
+        ),
     ]
 
-    result = validate_multi_turn_input(user_input)
+    call_count = 0
 
-    assert result == user_input
+    async def mock_send_step(user_input, context_id):
+        nonlocal call_count
+        result = mock_results[call_count]
+        call_count += 1
+        return result
 
+    # Mock the tracer to avoid real OTel calls
+    with patch.object(executor._tracer, "start_span") as mock_span_factory:
+        mock_span = MagicMock()
+        mock_span_context = MagicMock()
+        mock_span_context.trace_id = 0x1234567890ABCDEF
+        mock_span.get_span_context.return_value = mock_span_context
+        mock_span_factory.return_value = mock_span
 
-def test_validate_multi_turn_input_invalid_type():
-    """Test validation rejects non-list input"""
-    with pytest.raises(ValueError, match="must be list"):
-        validate_multi_turn_input("not a list")  # type: ignore
+        with patch("run.A2AStepClient") as mock_a2a_step_client:
+            mock_client_instance = AsyncMock()
+            mock_client_instance.send_step = mock_send_step
+            mock_a2a_step_client.return_value = mock_client_instance
 
+            result = await executor.run()
 
-def test_validate_multi_turn_input_missing_fields():
-    """Test validation catches missing content/type fields"""
-    # Missing content
-    with pytest.raises(ValueError, match="missing 'content' field"):
-        validate_multi_turn_input([{"type": "human"}])
+    # Verify result structure
+    assert isinstance(result, ExecutedExperiment)
+    assert result.id == "test-workflow"
+    assert len(result.scenarios) == 1
 
-    # Missing type
-    with pytest.raises(ValueError, match="missing 'type' field"):
-        validate_multi_turn_input([{"content": "Hello"}])
+    scenario = result.scenarios[0]
+    assert isinstance(scenario, ExecutedScenario)
+    assert scenario.name == "Test Scenario"
+    assert scenario.id is not None
+    assert scenario.trace_id is not None
+    assert len(scenario.steps) == 2
 
+    # Verify steps
+    step1 = scenario.steps[0]
+    assert isinstance(step1, ExecutedStep)
+    assert step1.input == "Hello"
+    assert step1.turns is not None
+    assert len(step1.turns) == 2
 
-def test_validate_multi_turn_input_invalid_message_type():
-    """Test validation catches invalid message types"""
-    with pytest.raises(ValueError, match="has invalid type"):
-        validate_multi_turn_input([{"content": "Hello", "type": "invalid"}])
+    step2 = scenario.steps[1]
+    assert isinstance(step2, ExecutedStep)
+    assert step2.input == "How are you?"
+    assert step2.turns is not None
 
-
-@pytest.mark.asyncio
-async def test_main_detects_multi_turn(temp_dir, monkeypatch):
-    """Test main calls multi_turn_experiment for list user_input"""
-    tmp, original_cwd = temp_dir
-    os.chdir(tmp)
-
-    try:
-        # Create a mock dataset with multi-turn format
-        class MockDataset:
-            def __len__(self):
-                return 1
-
-            def __getitem__(self, index):
-                # Return multi-turn format for detection
-                return {
-                    "user_input": [{"content": "Hello", "type": "human"}],
-                    "reference": "Answer",
-                }
-
-        mock_dataset = MockDataset()
-
-        calls_to_multi_turn = []
-
-        async def mock_multi_turn_arun(*args, **kwargs):
-            calls_to_multi_turn.append({"args": args, "kwargs": kwargs})
-            return None
-
-        def mock_dataset_load(**kwargs):
-            return mock_dataset
-
-        monkeypatch.setattr("run.Dataset.load", mock_dataset_load)
-        monkeypatch.setattr("run.multi_turn_experiment.arun", mock_multi_turn_arun)
-
-        # Run main
-        await main("http://test-agent:8000", "test-workflow")
-
-        # Verify multi_turn_experiment was called
-        assert len(calls_to_multi_turn) == 1
-        assert calls_to_multi_turn[0]["kwargs"]["workflow_name"] == "test-workflow"
-    finally:
-        os.chdir(original_cwd)
+    # Verify output file was written
+    assert output_path.exists()
+    output_data = json.loads(output_path.read_text())
+    assert "scenarios" in output_data
+    assert len(output_data["scenarios"]) == 1
 
 
 @pytest.mark.asyncio
-async def test_multi_turn_experiment_with_tool_calls(monkeypatch):
-    """Test multi_turn_experiment extracts tool calls from agent responses"""
-    from a2a.types import Message, Part, Role, TextPart
-    from run import multi_turn_experiment
+async def test_executor_run_with_error_handling(tmp_path):
+    """Test that executor handles A2A client errors gracefully."""
+    # Create input experiment file
+    input_path = tmp_path / "input.json"
+    output_path = tmp_path / "output.json"
 
-    # Mock row data with multi-turn input
-    row = {
-        "user_input": [
-            {"content": "What's the weather in NYC?", "type": "human"},
-            {"content": "How about London?", "type": "human"},
-        ],
-        "reference": "Weather info provided",
+    experiment_data = {
+        "scenarios": [
+            {
+                "name": "Test Scenario",
+                "steps": [
+                    {"input": "Failing query", "reference": None},
+                ],
+            }
+        ]
     }
+    input_path.write_text(json.dumps(experiment_data))
 
-    # Create mock task objects with tool calls
-    class MockTask:
-        def __init__(self, context_id, turn_idx, has_tool_calls=False):
-            self.context_id = context_id
-            self.turn_idx = turn_idx
-            self.id = f"task_{turn_idx}"
+    executor = A2AExecutor(
+        agent_url="http://test-agent:8000",
+        workflow_name="test-workflow",
+        input_path=str(input_path),
+        output_path=str(output_path),
+    )
 
-            # Create history with agent message
-            agent_metadata = None
-            if has_tool_calls:
-                agent_metadata = {
-                    "tool_calls": [{"name": "get_weather", "args": {"location": "NYC" if turn_idx == 1 else "London"}}]
-                }
+    # Mock A2AStepClient to return error turn
+    async def mock_send_step_error(user_input, context_id):
+        return A2AStepResult(
+            turns=[Turn(content="Failing query", type="human"), Turn(content="ERROR: Connection failed", type="agent")],
+            response_text="ERROR: Connection failed",
+            context_id=None,
+        )
 
-            self.history = [
-                Message(
-                    role=Role.user,
-                    parts=[Part(TextPart(text=row["user_input"][turn_idx - 1]["content"]))],
-                    message_id=f"user_msg_{turn_idx}",
-                ),
-                Message(
-                    role=Role.agent,
-                    parts=[Part(TextPart(text=f"Weather response {turn_idx}"))],
-                    message_id=f"agent_msg_{turn_idx}",
-                    metadata=agent_metadata,
-                ),
-            ]
+    # Mock the tracer
+    with patch.object(executor._tracer, "start_span") as mock_span_factory:
+        mock_span = MagicMock()
+        mock_span_context = MagicMock()
+        mock_span_context.trace_id = 0x1234567890ABCDEF
+        mock_span.get_span_context.return_value = mock_span_context
+        mock_span_factory.return_value = mock_span
 
-        def model_dump(self, mode=None, include=None):
-            return {"artifacts": [{"parts": [{"text": f"Weather response {self.turn_idx}"}]}]}
+        with patch("run.A2AStepClient") as mock_a2a_step_client:
+            mock_client_instance = AsyncMock()
+            mock_client_instance.send_step = mock_send_step_error
+            mock_a2a_step_client.return_value = mock_client_instance
 
-    # Mock client that accumulates history
-    class MockClient:
-        def __init__(self):
-            self.turn_count = 0
-            self.accumulated_history = []
+            result = await executor.run()
 
-        async def send_message(self, message):
-            self.turn_count += 1
-            context_id = "test_context_123"
+    # Verify error was captured in turns
+    assert isinstance(result, ExecutedExperiment)
+    step = result.scenarios[0].steps[0]
+    assert len(step.turns) == 2
+    assert "ERROR" in step.turns[1].content
 
-            # Add user message to history
-            self.accumulated_history.append(message)
 
-            # Add agent response message to history
-            has_tool_calls = self.turn_count == 1
-            agent_metadata = None
-            if has_tool_calls:
-                agent_metadata = {
-                    "tool_calls": [
-                        {"name": "get_weather", "args": {"location": "NYC" if self.turn_count == 1 else "London"}}
-                    ]
-                }
+# ---------------------------------------------------------------------------
+# Test main()
+# ---------------------------------------------------------------------------
 
-            agent_message = Message(
-                role=Role.agent,
-                parts=[Part(TextPart(text=f"Weather response {self.turn_count}"))],
-                message_id=f"agent_msg_{self.turn_count}",
-                metadata=agent_metadata,
+
+@pytest.mark.asyncio
+async def test_main_creates_executor_and_runs(tmp_path):
+    """Test that main() creates executor with correct parameters."""
+    # Create input experiment file
+    input_path = tmp_path / "experiment.json"
+
+    experiment_data = {
+        "scenarios": [
+            {
+                "name": "Main Test",
+                "steps": [{"input": "Test query", "reference": None}],
+            }
+        ]
+    }
+    input_path.write_text(json.dumps(experiment_data))
+
+    # Mock setup_otel
+    with patch("run.setup_otel"):
+        # Mock A2AExecutor.run
+        with patch("run.A2AExecutor.run") as mock_run:
+            mock_result = ExecutedExperiment(scenarios=[])
+            mock_run.return_value = mock_result
+
+            await main(
+                agent_url="http://test-agent:8000",
+                workflow_name="test-workflow",
+                input_path=str(input_path),
             )
-            self.accumulated_history.append(agent_message)
 
-            # Create task with complete history
-            class FinalTask:
-                def __init__(self, ctx_id, history, turn_num):
-                    self.context_id = ctx_id
-                    self.id = f"task_{turn_num}"
-                    self.history = list(history)  # Copy the history
-                    self.turn_num = turn_num
-
-                def model_dump(self, mode=None, include=None):
-                    return {"artifacts": [{"parts": [{"text": f"Weather response {self.turn_num}"}]}]}
-
-            task = FinalTask(context_id, self.accumulated_history, self.turn_count)
-            yield (task, None)
-
-    mock_client = MockClient()
-
-    # Mock initialize_client
-    async def mock_initialize_client(agent_url, client):
-        return mock_client
-
-    monkeypatch.setattr("run.initialize_client", mock_initialize_client)
-
-    # Mock setup_otel (to avoid actual OTEL setup)
-    def mock_setup_otel():
-        pass
-
-    monkeypatch.setattr("run.setup_otel", mock_setup_otel)
-
-    # Run the experiment
-    result = await multi_turn_experiment(row, agent_url="http://test-agent:8000", workflow_name="test-workflow")
-
-    # Verify result structure
-    assert "user_input" in result
-    assert "trace_id" in result
-    assert isinstance(result["user_input"], list)
-
-    # Verify conversation contains 5 messages
-    # Turn 1: human → ai(empty+tool_calls) → ai(text)
-    # Turn 2: human → ai(text)
-    conversation = result["user_input"]
-    assert len(conversation) == 5, f"Expected 5 messages, got {len(conversation)}"
-
-    # Verify first turn
-    # Message 0: Human message
-    assert conversation[0]["type"] == "human"
-    assert conversation[0]["content"] == "What's the weather in NYC?"
-
-    # Message 1: AI message with empty content and tool_calls
-    assert conversation[1]["type"] == "ai"
-    assert conversation[1]["content"] == ""
-    assert "tool_calls" in conversation[1], "AI message should have tool_calls"
-    assert len(conversation[1]["tool_calls"]) == 1
-    assert conversation[1]["tool_calls"][0]["name"] == "get_weather"
-    assert conversation[1]["tool_calls"][0]["args"]["location"] == "NYC"
-
-    # Message 2: AI message with text content (no tool_calls)
-    assert conversation[2]["type"] == "ai"
-    assert conversation[2]["content"] == "Weather response 1"
-    assert "tool_calls" not in conversation[2], "Text AI message should not have tool_calls"
-
-    # Verify second turn (no tool calls)
-    # Message 3: Human message
-    assert conversation[3]["type"] == "human"
-    assert conversation[3]["content"] == "How about London?"
-
-    # Message 4: AI message with text content
-    assert conversation[4]["type"] == "ai"
-    assert conversation[4]["content"] == "Weather response 2"
-    assert "tool_calls" not in conversation[4], "Second AI message should not have tool_calls"
+            # Verify run was called
+            mock_run.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_multi_turn_experiment_no_tool_calls(monkeypatch):
-    """Test multi_turn_experiment works without tool calls"""
-    from a2a.types import Message, Part, Role, TextPart
-    from run import multi_turn_experiment
+async def test_main_default_output_path(tmp_path):
+    """Test that main() uses default output path."""
+    input_path = tmp_path / "input.json"
 
-    # Mock row data with multi-turn input
-    row = {
-        "user_input": [
-            {"content": "Hello", "type": "human"},
-        ],
-        "reference": "Greeting response",
-    }
+    experiment_data = {"scenarios": [{"name": "Test", "steps": [{"input": "query", "reference": None}]}]}
+    input_path.write_text(json.dumps(experiment_data))
 
-    # Create mock task without tool calls
-    class MockTask:
-        def __init__(self, context_id):
-            self.context_id = context_id
-            self.id = "task_1"
+    mock_result = A2AStepResult(
+        turns=[Turn(content="query", type="human"), Turn(content="response", type="agent")],
+        response_text="response",
+        context_id="ctx-1",
+    )
 
-            # History without tool calls in metadata
-            self.history = [
-                Message(role=Role.user, parts=[Part(TextPart(text="Hello"))], message_id="user_msg_1"),
-                Message(
-                    role=Role.agent,
-                    parts=[Part(TextPart(text="Hi there!"))],
-                    message_id="agent_msg_1",
-                    metadata=None,  # No metadata, no tool calls
-                ),
-            ]
+    with patch("run.setup_otel"):
+        with patch("run.A2AStepClient") as mock_a2a_step_client:
+            mock_client_instance = AsyncMock()
+            mock_client_instance.send_step = AsyncMock(return_value=mock_result)
+            mock_a2a_step_client.return_value = mock_client_instance
 
-        def model_dump(self, mode=None, include=None):
-            return {"artifacts": [{"parts": [{"text": "Hi there!"}]}]}
+            # Mock tracer
+            with patch("run.trace.get_tracer") as mock_get_tracer:
+                mock_tracer = MagicMock()
+                mock_span = MagicMock()
+                mock_span_context = MagicMock()
+                mock_span_context.trace_id = 0x1234567890ABCDEF
+                mock_span.get_span_context.return_value = mock_span_context
+                mock_tracer.start_span.return_value = mock_span
+                mock_get_tracer.return_value = mock_tracer
 
-    # Mock client
-    class MockClient:
-        async def send_message(self, message):
-            task = MockTask("test_context_456")
-            yield (task, None)
+                # Change to tmp directory to avoid writing to real data/ folder
+                import os
 
-    mock_client = MockClient()
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(tmp_path)
+                    await main(
+                        agent_url="http://test-agent:8000",
+                        workflow_name="test-workflow",
+                        input_path=str(input_path),
+                    )
 
-    # Mock initialize_client
-    async def mock_initialize_client(agent_url, client):
-        return mock_client
-
-    monkeypatch.setattr("run.initialize_client", mock_initialize_client)
-
-    # Mock setup_otel
-    def mock_setup_otel():
-        pass
-
-    monkeypatch.setattr("run.setup_otel", mock_setup_otel)
-
-    # Run the experiment
-    result = await multi_turn_experiment(row, agent_url="http://test-agent:8000", workflow_name="test-workflow")
-
-    # Verify result structure
-    assert "user_input" in result
-    assert isinstance(result["user_input"], list)
-
-    conversation = result["user_input"]
-    assert len(conversation) == 2  # 1 turn = 2 messages
-
-    # Verify messages don't have tool_calls field (or it's None/empty)
-    assert conversation[0]["type"] == "human"
-    assert conversation[1]["type"] == "ai"
-    assert conversation[1]["content"] == "Hi there!"
-
-    # Tool calls should either not exist or be None/empty
-    if "tool_calls" in conversation[1]:
-        assert conversation[1]["tool_calls"] is None or len(conversation[1]["tool_calls"]) == 0
+                    # Verify default output path was used
+                    expected_output = tmp_path / "data" / "experiments" / "executed_experiment.json"
+                    assert expected_output.exists()
+                finally:
+                    os.chdir(original_cwd)
 
 
 @pytest.mark.asyncio
-async def test_multi_turn_experiment_with_datapart_tool_calls(monkeypatch):
-    """Test multi_turn_experiment extracts tool calls from DataPart objects (framework-agnostic)"""
-    from a2a.types import DataPart, Message, Part, Role, TextPart
-    from run import multi_turn_experiment
+async def test_main_integration_with_cli_args(tmp_path):
+    """Test main() works with CLI argument pattern."""
+    # Create input experiment file
+    input_path = tmp_path / "input.json"
 
-    # Mock row data with multi-turn input
-    row = {
-        "user_input": [
-            {"content": "What time is it in New York?", "type": "human"},
-        ],
-        "reference": "Time info provided",
+    experiment_data = {
+        "scenarios": [
+            {
+                "name": "CLI Test",
+                "steps": [{"input": "CLI query", "reference": None}],
+            }
+        ]
     }
+    input_path.write_text(json.dumps(experiment_data))
 
-    # Create mock task with DataPart tool calls
-    class MockTask:
-        def __init__(self, context_id):
-            self.context_id = context_id
-            self.id = "task_1"
-
-            # History with DataPart containing both tool call and tool response
-            self.history = [
-                Message(
-                    role=Role.user, parts=[Part(TextPart(text="What time is it in New York?"))], message_id="user_msg_1"
-                ),
-                # Tool call DataPart (has name + args)
-                Message(
-                    role=Role.agent,
-                    parts=[
-                        Part(
-                            DataPart(
-                                kind="data",
-                                data={
-                                    "id": "call_get_current_time",
-                                    "name": "get_current_time",
-                                    "args": {"city": "New York"},
-                                },
-                                metadata={"adk_type": "function_call"},
-                            )
-                        )
-                    ],
-                    message_id="agent_msg_1",
-                    metadata=None,
-                ),
-                # Tool response DataPart (has name + response) - should be ignored
-                Message(
-                    role=Role.agent,
-                    parts=[
-                        Part(
-                            DataPart(
-                                kind="data",
-                                data={
-                                    "id": "call_get_current_time",
-                                    "name": "get_current_time",
-                                    "response": {
-                                        "status": "success",
-                                        "report": "The current time in New York is 11:22:05 EST",
-                                    },
-                                },
-                                metadata={"adk_type": "function_response"},
-                            )
-                        )
-                    ],
-                    message_id="agent_msg_2",
-                    metadata=None,
-                ),
-                # Final text response
-                Message(
-                    role=Role.agent,
-                    parts=[Part(TextPart(text="The current time in New York is 11:22:05 EST"))],
-                    message_id="agent_msg_3",
-                    metadata=None,
-                ),
-            ]
-
-        def model_dump(self, mode=None, include=None):
-            return {"artifacts": [{"parts": [{"text": "The current time in New York is 11:22:05 EST"}]}]}
-
-    # Mock client
-    class MockClient:
-        async def send_message(self, message):
-            task = MockTask("test_context_789")
-            yield (task, None)
-
-    mock_client = MockClient()
-
-    # Mock initialize_client
-    async def mock_initialize_client(agent_url, client):
-        return mock_client
-
-    monkeypatch.setattr("run.initialize_client", mock_initialize_client)
-
-    # Mock setup_otel
-    def mock_setup_otel():
-        pass
-
-    monkeypatch.setattr("run.setup_otel", mock_setup_otel)
-
-    # Run the experiment
-    result = await multi_turn_experiment(row, agent_url="http://test-agent:8000", workflow_name="test-workflow")
-
-    # Verify result structure
-    assert "user_input" in result
-    assert isinstance(result["user_input"], list)
-
-    conversation = result["user_input"]
-    # Should have 4 messages: human → ai(empty+tool_calls) → tool(response) → ai(text)
-    assert len(conversation) == 4, f"Expected 4 messages, got {len(conversation)}: {conversation}"
-
-    # Message 0: Human message
-    assert conversation[0]["type"] == "human"
-    assert conversation[0]["content"] == "What time is it in New York?"
-
-    # Message 1: AI message with empty content but with tool_calls
-    assert conversation[1]["type"] == "ai"
-    assert conversation[1]["content"] == "", "AI message with tool_calls should have empty content"
-    assert "tool_calls" in conversation[1], "AI message should have tool_calls from DataPart"
-    assert len(conversation[1]["tool_calls"]) == 1, "Should have exactly one tool call"
-    assert conversation[1]["tool_calls"][0]["name"] == "get_current_time"
-    assert conversation[1]["tool_calls"][0]["args"]["city"] == "New York"
-
-    # Message 2: Tool response message
-    assert conversation[2]["type"] == "tool"
-    assert "content" in conversation[2]
-    assert "The current time in New York is 11:22:05 EST" in conversation[2]["content"]
-
-    # Message 3: Final AI message with text content (no tool_calls)
-    assert conversation[3]["type"] == "ai"
-    assert conversation[3]["content"] == "The current time in New York is 11:22:05 EST"
-    assert "tool_calls" not in conversation[3], "Final AI message should not have tool_calls"
-
-
-def test_validate_hash_uniqueness_success(tmp_path):
-    """Test validation passes with unique hashes."""
-    experiment_file = tmp_path / "experiment.jsonl"
-    experiment_file.write_text(
-        '{"user_input":"query1","sample_hash":"abc123","response":"r1"}\n'
-        '{"user_input":"query2","sample_hash":"def456","response":"r2"}\n'
+    mock_result = A2AStepResult(
+        turns=[Turn(content="CLI query", type="human"), Turn(content="CLI response", type="agent")],
+        response_text="CLI response",
+        context_id="ctx-cli",
     )
 
-    # Should not raise
-    _validate_hash_uniqueness(str(experiment_file))
+    import os
 
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
 
-def test_validate_hash_uniqueness_duplicate(tmp_path):
-    """Test validation fails with duplicate hashes."""
-    experiment_file = tmp_path / "experiment.jsonl"
-    experiment_file.write_text(
-        '{"user_input":"query1","sample_hash":"abc123","response":"r1"}\n'
-        '{"user_input":"query2","sample_hash":"abc123","response":"r2"}\n'
-    )
+        with patch("run.setup_otel"):
+            # Mock tracer at import time before A2AExecutor is created
+            with patch("run.trace.get_tracer") as mock_get_tracer:
+                mock_tracer = MagicMock()
+                mock_span = MagicMock()
+                mock_span_context = MagicMock()
+                mock_span_context.trace_id = 0x1234567890ABCDEF
+                mock_span.get_span_context.return_value = mock_span_context
+                mock_tracer.start_span.return_value = mock_span
+                mock_get_tracer.return_value = mock_tracer
 
-    with pytest.raises(ValueError, match="Found 1 duplicate sample_hash"):
-        _validate_hash_uniqueness(str(experiment_file))
+                with patch("run.A2AStepClient") as mock_a2a_step_client:
+                    mock_client_instance = AsyncMock()
+                    mock_client_instance.send_step = AsyncMock(return_value=mock_result)
+                    mock_a2a_step_client.return_value = mock_client_instance
 
+                    # Simulate CLI invocation
+                    await main(
+                        agent_url="http://cli-agent:9000",
+                        workflow_name="cli-workflow",
+                        input_path=str(input_path),
+                    )
 
-def test_validate_hash_uniqueness_missing_hash(tmp_path):
-    """Test validation fails if sample_hash is missing."""
-    experiment_file = tmp_path / "experiment.jsonl"
-    experiment_file.write_text('{"user_input":"query1","response":"r1"}\n')
+        # Verify execution completed
+        output_path = tmp_path / "data" / "experiments" / "executed_experiment.json"
+        assert output_path.exists()
 
-    with pytest.raises(ValueError, match="Missing sample_hash at line 1"):
-        _validate_hash_uniqueness(str(experiment_file))
-
-
-def test_validate_hash_uniqueness_multiple_duplicates(tmp_path):
-    """Test validation reports multiple duplicates correctly."""
-    experiment_file = tmp_path / "experiment.jsonl"
-    lines = [
-        '{"user_input":"query1","sample_hash":"abc123","response":"r1"}\n',
-        '{"user_input":"query2","sample_hash":"def456","response":"r2"}\n',
-        '{"user_input":"query3","sample_hash":"abc123","response":"r3"}\n',  # dup1
-        '{"user_input":"query4","sample_hash":"def456","response":"r4"}\n',  # dup2
-    ]
-    experiment_file.write_text("".join(lines))
-
-    with pytest.raises(ValueError, match="Found 2 duplicate") as exc_info:
-        _validate_hash_uniqueness(str(experiment_file))
-
-    error_msg = str(exc_info.value)
-    assert "Found 2 duplicate" in error_msg
-    assert "abc123" in error_msg
-    assert "def456" in error_msg
+        result_data = json.loads(output_path.read_text())
+        # The id field should be set by A2AExecutor.run()
+        # If mocking interferes, just verify the core structure
+        assert "scenarios" in result_data
+        assert len(result_data["scenarios"]) == 1
+        assert result_data["scenarios"][0]["name"] == "CLI Test"
+        # Verify the step was executed
+        assert len(result_data["scenarios"][0]["steps"]) == 1
+        assert result_data["scenarios"][0]["steps"][0]["input"] == "CLI query"
+    finally:
+        os.chdir(original_cwd)

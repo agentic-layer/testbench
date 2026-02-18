@@ -19,9 +19,10 @@ spec:
     - name: run
       artifacts:
         paths:
-          - "data/experiments/ragas_experiment.jsonl"
+          - "data/experiments/executed_experiment.json"
       run:
         image: {{ include "testbench.image" . }}
         args:
           - run.py
           - "{{`{{ config.agentUrl }}`}}"
+          - "{{`{{ workflow.name }}`}}"

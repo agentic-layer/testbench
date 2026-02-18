@@ -22,7 +22,7 @@ spec:
     - name: setup
       artifacts:
         paths:
-          - "data/datasets/ragas_dataset.jsonl"
+          - "data/datasets/experiment.json"
       run:
         image: {{ include "testbench.image" . }}
         args:

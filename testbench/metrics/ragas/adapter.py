@@ -5,15 +5,14 @@ import logging
 from typing import Any, Union
 
 import ragas.metrics.collections as metrics_module
+from metrics.adapter import FrameworkAdapter
+from metrics.protocol import MetricCallable, MetricResult
 from openai import AsyncOpenAI
 from ragas.llms import llm_factory
 from ragas.messages import AIMessage, HumanMessage, ToolMessage
 from ragas.messages import ToolCall as RagasToolCall
 from ragas.metrics.collections import BaseMetric
 from schema.models import ExecutedStep, ToolCall, Turn
-
-from metrics.adapter import FrameworkAdapter
-from metrics.protocol import MetricCallable, MetricResult
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +27,7 @@ class RagasMetricCallable:
         self._expected_params = set(sig.parameters.keys())
         # Check whether ascore expects user_input as list (multi-turn) or str (single-turn)
         user_input_param = sig.parameters.get("user_input")
-        self._expects_list_input = user_input_param is not None and "list" in str(
-            user_input_param.annotation
-        ).lower()
+        self._expects_list_input = user_input_param is not None and "list" in str(user_input_param.annotation).lower()
 
     async def __call__(self, sample: ExecutedStep, **metric_args: Any) -> MetricResult:
         """Evaluate a sample using the wrapped RAGAS metric.
@@ -56,7 +53,7 @@ class RagasMetricCallable:
 
         # Multi-turn: convert turns to RAGAS messages or use single input string for single-turn metrics
         if self._expects_list_input:
-            params["user_input"] = self._map_user_input(sample.turns)
+            params["user_input"] = self._map_user_input(sample.turns or [])
         else:
             params["user_input"] = sample.input
 
@@ -83,10 +80,7 @@ class RagasMetricCallable:
             if turn.type == "human":
                 mapped.append(HumanMessage(content=turn.content))
             elif turn.type == "agent":
-                tool_calls = [
-                    RagasToolCall(name=tc.name, args=tc.args)
-                    for tc in (turn.tool_calls or [])
-                ]
+                tool_calls = [RagasToolCall(name=tc.name, args=tc.args) for tc in (turn.tool_calls or [])]
                 mapped.append(AIMessage(content=turn.content, tool_calls=tool_calls or None))
             elif turn.type == "tool":
                 tool_call_id = ""
@@ -102,9 +96,9 @@ class RagasMetricCallable:
     def _map_reference_tool_calls(tool_calls: list[ToolCall]) -> list[ToolCall]:
         """Convert ToolCall models to RAGAS-expected format."""
         return [
-            RagasToolCall(
+            RagasToolCall(  # type: ignore[misc]
                 name=tc.name,
-                args=tc.arguments
+                args=tc.arguments,
             )
             for tc in tool_calls
         ]

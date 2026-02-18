@@ -1,4 +1,4 @@
-"""Unit tests for scripts/examples/evaluate_experiment.py."""
+"""Unit tests for testbench/evaluate.py (MetricEvaluator)."""
 
 import json
 import sys
@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "testbench"))
 
-from examples.evaluate_experiment import MetricEvaluator, main  # noqa: E402
+from evaluate import MetricEvaluator, main  # noqa: E402
 from schema.models import (  # noqa: E402
     EvaluatedExperiment,
     EvaluatedStep,
@@ -314,7 +314,7 @@ async def test_main_reads_and_writes_json(tmp_path: Path) -> None:
 
     mock_callable = _mock_metric_callable(0.95)
 
-    with patch("examples.evaluate_experiment.GenericMetricsRegistry.create_default") as mock_registry_cls:
+    with patch("evaluate.GenericMetricsRegistry.create_default") as mock_registry_cls:
         mock_registry = MagicMock()
         mock_registry.get_metric_callable.return_value = mock_callable
         mock_registry_cls.return_value = mock_registry

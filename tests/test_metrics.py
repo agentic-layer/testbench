@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "testbench"))
 
 from metrics.protocol import MetricResult
+from metrics.ragas.translation import dict_to_executed_step
 from metrics.registry import GenericMetricsRegistry
-from metrics.translation import dict_to_executed_step
 from schema.models import ExecutedStep, Reference, Turn
 
 # ── dict_to_executed_step tests ──────────────────────────────────────────
@@ -121,7 +121,7 @@ class TestDictToExecutedStep:
 class TestRagasFrameworkAdapter:
     def test_discovery(self):
         """Adapter discovers RAGAS metric classes."""
-        from metrics.ragas_adapter import RagasFrameworkAdapter
+        from metrics.ragas.adapter import RagasFrameworkAdapter
 
         adapter = RagasFrameworkAdapter()
         metrics = adapter.discover_metrics()
@@ -129,14 +129,14 @@ class TestRagasFrameworkAdapter:
 
     def test_framework_name(self):
         """Adapter reports correct framework name."""
-        from metrics.ragas_adapter import RagasFrameworkAdapter
+        from metrics.ragas.adapter import RagasFrameworkAdapter
 
         adapter = RagasFrameworkAdapter()
         assert adapter.framework_name == "ragas"
 
     def test_create_callable_success(self):
         """Adapter creates callable for valid metric class."""
-        from metrics.ragas_adapter import RagasFrameworkAdapter
+        from metrics.ragas.adapter import RagasFrameworkAdapter
 
         adapter = RagasFrameworkAdapter()
         metrics = adapter.discover_metrics()
@@ -157,7 +157,7 @@ class TestRagasFrameworkAdapter:
 
     def test_create_callable_unknown_class(self):
         """Adapter raises ValueError for unknown class."""
-        from metrics.ragas_adapter import RagasFrameworkAdapter
+        from metrics.ragas.adapter import RagasFrameworkAdapter
 
         adapter = RagasFrameworkAdapter()
         mock_llm = MagicMock()
@@ -173,7 +173,7 @@ class TestRagasMetricCallable:
     @pytest.mark.asyncio
     async def test_callable_returns_metric_result(self):
         """RagasMetricCallable wraps metric.ascore and returns MetricResult."""
-        from metrics.ragas_adapter import RagasMetricCallable
+        from metrics.ragas.adapter import RagasMetricCallable
 
         # Create a mock RAGAS metric
         mock_metric = MagicMock()
@@ -200,7 +200,7 @@ class TestRagasMetricCallable:
     @pytest.mark.asyncio
     async def test_callable_multi_turn(self):
         """RagasMetricCallable handles multi-turn steps by converting to LangChain messages."""
-        from metrics.ragas_adapter import RagasMetricCallable
+        from metrics.ragas.adapter import RagasMetricCallable
 
         mock_metric = MagicMock()
         mock_metric.name = "test_metric"

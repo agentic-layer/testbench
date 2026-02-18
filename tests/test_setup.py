@@ -14,9 +14,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "testbench"))
 
-from setup import custom_convert_csv, dataframe_to_ragas_dataset, get_converter, main
+from setup import custom_convert_csv, dataframe_to_experiment, get_converter, main
 
 
 # Fixtures
@@ -100,10 +100,10 @@ def test_creates_ragas_dataset_file(temp_dir):
             }
         )
 
-        dataframe_to_ragas_dataset(df)
+        dataframe_to_experiment(df)
 
         # Check for the file in the datasets subdirectory
-        dataset_file = Path(tmp) / "data" / "datasets" / "ragas_dataset.jsonl"
+        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
         assert dataset_file.exists(), f"Dataset file not found at {dataset_file}"
     finally:
         os.chdir(original_cwd)
@@ -134,7 +134,7 @@ def test_main_with_csv(temp_dir, monkeypatch):
         main("test-bucket", "data.csv")
 
         # Verify dataset was created in datasets subdirectory
-        dataset_file = Path(tmp) / "data" / "datasets" / "ragas_dataset.jsonl"
+        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
         assert dataset_file.exists(), f"Dataset file not found at {dataset_file}"
     finally:
         os.chdir(original_cwd)
@@ -169,7 +169,7 @@ def test_main_with_json(temp_dir, monkeypatch):
         main("test-bucket", "data.json")
 
         # Verify dataset was created in datasets subdirectory
-        dataset_file = Path(tmp) / "data" / "datasets" / "ragas_dataset.jsonl"
+        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
         assert dataset_file.exists(), f"Dataset file not found at {dataset_file}"
     finally:
         os.chdir(original_cwd)

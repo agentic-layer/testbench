@@ -10,6 +10,8 @@ from logging import Logger
 from pathlib import Path
 from typing import Any, TypeGuard
 
+from schema.models import EvaluatedExperiment
+
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)
 logger: Logger = logging.getLogger(__name__)
@@ -45,36 +47,33 @@ def _is_valid_metric_value(value: Any) -> TypeGuard[int | float]:
 
 def load_evaluation_data(file_path: str) -> VisualizationData:
     """
-    Load ragas_evaluation.jsonl and extract all necessary data.
+    Load evaluated_experiment.json and extract all necessary data.
 
     Args:
-        file_path: Path to ragas_evaluation.jsonl
+        file_path: Path to evaluated_experiment.json
 
     Returns:
         VisualizationData container with all evaluation data
 
     Raises:
         FileNotFoundError: If file doesn't exist
-        json.JSONDecodeError: If file is not valid JSONL
+        json.JSONDecodeError: If file is not valid JSON
     """
     try:
-        # Read JSONL file (line-delimited JSON)
-        rows = []
+        # Read and parse EvaluatedExperiment JSON
         with open(file_path, "r") as f:
-            for line in f:
-                if line.strip():
-                    rows.append(json.loads(line))
+            experiment = EvaluatedExperiment.model_validate_json(f.read())
     except FileNotFoundError:
         logger.error(f"Input file not found: {file_path}")
-        logger.error("Have you run evaluate.py first to generate ragas_evaluation.jsonl?")
+        logger.error("Have you run evaluate.py first to generate evaluated_experiment.json?")
         raise
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON in {file_path}: {e}")
         raise
 
-    # Handle empty file
-    if not rows:
-        logger.warning("Empty JSONL file. Returning empty VisualizationData.")
+    # Handle empty experiment
+    if not experiment.scenarios:
+        logger.warning("Empty experiment. Returning empty VisualizationData.")
         return VisualizationData(
             overall_scores={},
             individual_results=[],
@@ -83,58 +82,73 @@ def load_evaluation_data(file_path: str) -> VisualizationData:
             metric_names=[],
         )
 
-    # Flatten individual_results from nested structure to top-level
-    flattened_results = []
-    for i, row in enumerate(rows):
-        nested_metrics = row.pop("individual_results", {})
+    # Flatten scenarios->steps into individual results
+    individual_results = []
+    all_metric_scores: dict[str, list[float]] = {}
 
-        # Skip rows without individual_results
-        if not nested_metrics:
-            logger.warning(f"Row {i} missing 'individual_results', skipping")
-            continue
+    for scenario in experiment.scenarios:
+        for step in scenario.steps:
+            # Build flat result dict for this step
+            flat_result: dict[str, Any] = {
+                "user_input": step.input,
+                "step_id": step.id or "unknown",
+                "trace_id": scenario.trace_id or "unknown",
+            }
 
-        # Merge nested metrics to top level
-        flat_row = {**row, **nested_metrics}
+            # Add turns if present (for multi-turn conversation rendering)
+            if step.turns:
+                # Convert Turn objects to dicts for compatibility with rendering code
+                flat_result["turns"] = [
+                    {
+                        "content": turn.content,
+                        "type": turn.type,
+                        "tool_calls": [{"name": tc.name, "args": tc.args} for tc in turn.tool_calls]
+                        if turn.tool_calls
+                        else [],
+                    }
+                    for turn in step.turns
+                ]
 
-        # Ensure trace_id exists
-        if "trace_id" not in flat_row:
-            logger.warning(f"Row {i} missing trace_id, generating placeholder")
-            flat_row["trace_id"] = f"missing-trace-{i}"
+            # Add reference if present
+            if step.reference:
+                if step.reference.response:
+                    flat_result["reference"] = step.reference.response
 
-        flattened_results.append(flat_row)
+            # Add custom values if present
+            if step.custom_values:
+                flat_result.update(step.custom_values)
 
-    # Discover metric names from flattened results
-    metric_names: set[str] = set()
-    reserved_fields = {
-        "user_input",
-        "response",
-        "retrieved_contexts",
-        "reference",
-        "trace_id",
-        "reference_tool_calls",
-        "sample_hash",
-    }
+            # Extract metric scores
+            if step.evaluations:
+                for evaluation in step.evaluations:
+                    metric_name = evaluation.metric.metric_name
+                    score = evaluation.result.score
 
-    for result in flattened_results:
-        for key, value in result.items():
-            if key not in reserved_fields and _is_valid_metric_value(value):
-                metric_names.add(key)
+                    if score is not None and _is_valid_metric_value(score):
+                        flat_result[metric_name] = score
 
-    # Calculate overall_scores as mean of each metric across all rows
+                        # Collect for overall scores calculation
+                        if metric_name not in all_metric_scores:
+                            all_metric_scores[metric_name] = []
+                        all_metric_scores[metric_name].append(score)
+
+            individual_results.append(flat_result)
+
+    # Calculate overall_scores as mean of each metric across all steps
     overall_scores = {}
-    for metric_name in metric_names:
-        scores = [
-            r[metric_name] for r in flattened_results if metric_name in r and _is_valid_metric_value(r[metric_name])
-        ]
+    for metric_name, scores in all_metric_scores.items():
         if scores:
             overall_scores[metric_name] = sum(scores) / len(scores)
 
+    # Get sorted list of metric names
+    metric_names = sorted(list(all_metric_scores.keys()))
+
     return VisualizationData(
         overall_scores=overall_scores,
-        individual_results=flattened_results,
+        individual_results=individual_results,
         total_tokens={"input_tokens": 0, "output_tokens": 0},
         total_cost=0.0,
-        metric_names=sorted(list(metric_names)),
+        metric_names=metric_names,
     )
 
 
@@ -183,7 +197,7 @@ def _format_multi_turn_conversation(conversation: list[dict[str, Any]]) -> str:
     Format a multi-turn conversation as HTML with support for tool calls.
 
     Args:
-        conversation: List of message dicts with 'content', 'type', and optional 'tool_calls' fields
+        conversation: List of Turn dicts (from step.turns) with 'content', 'type', and optional 'tool_calls' fields
 
     Returns:
         Formatted HTML string
@@ -201,14 +215,14 @@ def _format_multi_turn_conversation(conversation: list[dict[str, Any]]) -> str:
         elif msg_type == "tool":
             css_class = "tool"
             label = "TOOL"
-        else:  # ai
+        else:  # agent (or ai for backwards compatibility)
             css_class = "ai"
-            label = "AI"
+            label = "AGENT"
 
         html_output += f'<div class="message {css_class}">'
         html_output += f"<strong>{label}:</strong> "
 
-        # If AI message has tool calls, display them
+        # If agent message has tool calls, display them
         if tool_calls:
             html_output += '<div class="tool-calls-container">'
             for tool_call in tool_calls:
@@ -234,21 +248,22 @@ def _format_multi_turn_conversation(conversation: list[dict[str, Any]]) -> str:
     return html_output
 
 
-def _is_multi_turn_conversation(user_input: Any) -> bool:
+def _is_multi_turn_conversation(result: dict[str, Any]) -> bool:
     """
-    Check if user_input is a multi-turn conversation.
+    Check if result has multi-turn conversation data (from step.turns).
 
     Args:
-        user_input: The user_input field to check
+        result: The result dict to check
 
     Returns:
-        True if it's a multi-turn conversation (list of message dicts)
+        True if it has turns data (list of Turn dicts)
     """
-    if not isinstance(user_input, list):
+    turns = result.get("turns")
+    if not isinstance(turns, list):
         return False
-    if not user_input:
+    if not turns:
         return False
-    return isinstance(user_input[0], dict) and "content" in user_input[0] and "type" in user_input[0]
+    return isinstance(turns[0], dict) and "content" in turns[0] and "type" in turns[0]
 
 
 def prepare_chart_data(viz_data: VisualizationData) -> dict[str, Any]:
@@ -295,15 +310,18 @@ def prepare_chart_data(viz_data: VisualizationData) -> dict[str, Any]:
         user_input = result.get("user_input", "")
         response = result.get("response", "")
 
-        # Check if user_input is a multi-turn conversation
-        is_multi_turn = _is_multi_turn_conversation(user_input)
+        # Check if result has multi-turn conversation data (from step.turns)
+        is_multi_turn = _is_multi_turn_conversation(result)
 
         sample = {
             "index": i + 1,
             "user_input": user_input,
-            "user_input_formatted": _format_multi_turn_conversation(user_input) if is_multi_turn else str(user_input),
+            "user_input_formatted": _format_multi_turn_conversation(result["turns"])
+            if is_multi_turn
+            else str(user_input),
             "response": response,
             "is_multi_turn": is_multi_turn,
+            "turns": result.get("turns", []),  # Include turns for tooltip generation
             "metrics": {metric: result.get(metric) for metric in viz_data.metric_names if metric in result},
             "trace_id": trace_id,
         }
@@ -854,15 +872,16 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
 
         # For tooltips and search, we need plain text version
         if sample.get("is_multi_turn"):
-            conversation = sample["user_input"]
+            # Get turns from sample (already included)
+            turns = sample.get("turns", [])
             tooltip_parts = []
-            for msg in conversation:
+            for msg in turns:
                 msg_type = msg.get("type", "unknown")
                 content = msg.get("content", "")
                 tool_calls = msg.get("tool_calls", [])
 
                 if tool_calls:
-                    # For AI messages with tool calls, show tool names
+                    # For agent messages with tool calls, show tool names
                     tool_names = ", ".join([tc.get("name", "unknown") for tc in tool_calls])
                     tooltip_parts.append(f"{msg_type}: [calls: {tool_names}]")
                 elif content:
@@ -1139,7 +1158,7 @@ def main(
     Main function to generate HTML visualization.
 
     Args:
-        input_file: Path to ragas_evaluation.jsonl
+        input_file: Path to evaluated_experiment.json
         output_file: Path to output HTML file
         workflow_name: Name of the test workflow
         execution_id: Testkube execution ID for this workflow run
@@ -1196,8 +1215,8 @@ Examples:
     parser.add_argument(
         "--input",
         type=str,
-        default="data/experiments/ragas_evaluation.jsonl",
-        help="Path to ragas_evaluation.jsonl file (default: data/experiments/ragas_evaluation.jsonl)",
+        default="data/experiments/evaluated_experiment.json",
+        help="Path to evaluated_experiment.json file (default: data/experiments/evaluated_experiment.json)",
     )
 
     parser.add_argument(

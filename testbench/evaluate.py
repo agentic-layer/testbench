@@ -5,8 +5,8 @@ generic metrics registry, and writes an ``evaluated_experiment.json``.
 
 Usage::
 
-    python3 scripts/examples/evaluate_experiment.py gemini-2.5-flash-lite
-    python3 scripts/examples/evaluate_experiment.py --input data/experiments/executed_experiment.json
+    python3 testbench/evaluate.py --model gemini-2.5-flash-lite
+    python3 testbench/evaluate.py --input data/experiments/executed_experiment.json
 """
 
 from __future__ import annotations
@@ -22,12 +22,12 @@ from schema.models import (
     EvaluatedStep,
     Evaluation,
     ExecutedExperiment,
+    ExecutedScenario,
     ExecutedStep,
     Experiment,
     Metric,
     Result,
     Scenario,
-    Step, ExecutedScenario,
 )
 from schema.runtime import ExperimentRuntime
 
@@ -51,6 +51,7 @@ class MetricEvaluator:
 
         self._registry = GenericMetricsRegistry.create_default()
         self._model: str = ""
+        self._cli_model: str | None = None
         self._default_threshold: float = 0.9
 
         # Per-scenario collection state (reset in before_scenario)
@@ -63,7 +64,11 @@ class MetricEvaluator:
     async def before_run(self, experiment: Experiment) -> None:
         """Extract default_threshold and model from the parsed experiment."""
         self._default_threshold = experiment.default_threshold
-        self._model = experiment.llm_as_a_judge_model or ""
+        # CLI model overrides experiment's llm_as_a_judge_model
+        if self._cli_model:
+            self._model = self._cli_model
+        else:
+            self._model = experiment.llm_as_a_judge_model or ""
 
     async def before_scenario(self, scenario: Scenario) -> None:
         """Reset per-scenario step collection."""
@@ -128,7 +133,7 @@ class MetricEvaluator:
         self._current_steps = []
 
         runtime: ExperimentRuntime[ExecutedExperiment, EvaluatedExperiment] = ExperimentRuntime(
-            on_step=self.on_step,
+            on_step=self.on_step,  # type: ignore[arg-type]
             input_path=self.input_path,
             output_path=self.output_path,
             input_model=ExecutedExperiment,
@@ -144,12 +149,14 @@ class MetricEvaluator:
         return result
 
 
-async def main(input_path: str, output_path: str) -> None:
+async def main(input_path: str, output_path: str, model: str | None = None) -> None:
     """Load an executed experiment, evaluate it, and write the result."""
     evaluator = MetricEvaluator(
         input_path=input_path,
         output_path=output_path,
     )
+    if model:
+        evaluator._cli_model = model
     await evaluator.run()
     logger.info("Wrote evaluated experiment to %s", output_path)
 
@@ -166,6 +173,11 @@ if __name__ == "__main__":
         default="data/experiments/evaluated_experiment.json",
         help="Path for evaluated experiment JSON (default: data/experiments/evaluated_experiment.json)",
     )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="LLM model for evaluation (overrides experiment's llm_as_a_judge_model)",
+    )
     args = parser.parse_args()
 
-    asyncio.run(main(args.input, args.output))
+    asyncio.run(main(args.input, args.output, args.model))

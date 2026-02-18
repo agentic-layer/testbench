@@ -1,7 +1,7 @@
-"""Example: execute an Experiment against an A2A agent using ExperimentRuntime.
+"""Execute an Experiment against an A2A agent using ExperimentRuntime.
 
-Demonstrates how to:
-1. Use ExperimentRuntime hooks to query an agent via A2A protocol
+Uses ExperimentRuntime hooks to:
+1. Query an agent via A2A protocol
 2. Maintain context_id across steps within a scenario
 3. Capture trace_id per scenario via OpenTelemetry
 4. Convert the runtime output into ExecutedExperiment with proper types
@@ -92,12 +92,12 @@ class A2AExecutor:
         span.set_attribute("scenario.step_count", len(scenario.steps))
         span.end()
 
-
         logger.info("Scenario '%s' started (id=%s, trace_id=%s)", scenario.name, scenario_id, trace_id)
 
     async def on_step(self, step: Step, scenario: Scenario) -> ExecutedStep:
         """Send step.input to the agent and return an ExecutedStep with turns."""
-        assert self._a2a_client is not None, "A2A client not initialised"
+        if self._a2a_client is None:
+            raise RuntimeError("A2A client not initialised")
 
         logger.info("  Step: %s", step.input[:80])
 
@@ -134,7 +134,7 @@ class A2AExecutor:
             input_path=self.input_path,
             output_path=self.output_path,
             before_scenario=self.before_scenario,
-            after_scenario=self.after_scenario,
+            after_scenario=self.after_scenario,  # type: ignore[arg-type]
             output_model=ExecutedExperiment,
         )
 

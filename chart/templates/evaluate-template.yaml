@@ -22,15 +22,13 @@ spec:
     - name: evaluate-results
       artifacts:
         paths:
-          - "data/experiments/ragas_evaluation.jsonl"
+          - "data/experiments/evaluated_experiment.json"
       run:
         image: {{ include "testbench.image" . }}
-        command:
-          - sh
-          - -c
         args:
-          - |
-            uv run python3 evaluate.py "{{`{{ config.model }}`}}" --metrics-config "/app/config/metrics.yaml"
+          - evaluate.py
+          - "--model"
+          - "{{`{{ config.model }}`}}"
         env:
           - name: OPENAI_BASE_URL
             value: "{{`{{ config.openApiBasePath }}`}}"

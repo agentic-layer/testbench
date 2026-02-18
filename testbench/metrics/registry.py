@@ -67,7 +67,7 @@ class GenericMetricsRegistry:
     @classmethod
     def create_default(cls) -> GenericMetricsRegistry:
         """Create a registry with the RAGAS adapter pre-registered."""
-        from metrics.ragas_adapter import RagasFrameworkAdapter
+        from metrics.ragas.adapter import RagasFrameworkAdapter
 
         registry = cls()
         registry.register_adapter(RagasFrameworkAdapter())
