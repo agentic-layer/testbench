@@ -19,6 +19,7 @@ from opentelemetry import trace
 from otel_setup import setup_otel
 from schema.a2a_client import A2AStepClient
 from schema.models import (
+    Experiment,
     ExecutedExperiment,
     ExecutedScenario,
     ExecutedStep,
@@ -53,9 +54,7 @@ class A2AExecutor:
 
         # Per-scenario mutable state, reset in before_scenario
         self._context_id: str | None = None
-        self._scenario_meta: list[dict[str, str]] = []
-        self._scenario_steps: list[list[ExecutedStep]] = []
-        self._current_steps: list[ExecutedStep] = []
+        self._current_trace_id: str | None = None
 
         # Deterministic ID state
         self._current_scenario_id: str = ""
@@ -74,7 +73,6 @@ class A2AExecutor:
     async def before_scenario(self, scenario: Scenario) -> None:
         """Reset conversation state and start an OTel span for the scenario."""
         self._context_id = None
-        self._current_steps = []
         self._step_index = 0
 
         scenario_id = _content_hash(f"{self.workflow_name}:{scenario.name}", prefix="scn_")
@@ -85,6 +83,7 @@ class A2AExecutor:
         span = self._tracer.start_span(f"scenario: {scenario.name}")
         span_context = span.get_span_context()
         trace_id = format(span_context.trace_id, "032x")
+        self._current_trace_id = trace_id
 
         span.set_attribute("scenario.name", scenario.name)
         span.set_attribute("scenario.id", scenario_id)
@@ -93,7 +92,6 @@ class A2AExecutor:
         span.set_attribute("scenario.step_count", len(scenario.steps))
         span.end()
 
-        self._scenario_meta.append({"id": scenario_id, "trace_id": trace_id})
 
         logger.info("Scenario '%s' started (id=%s, trace_id=%s)", scenario.name, scenario_id, trace_id)
 
@@ -110,7 +108,7 @@ class A2AExecutor:
         step_id = _content_hash(f"{self._current_scenario_id}:{step.input}:{self._step_index}", prefix="stp_")
         self._step_index += 1
 
-        executed_step = ExecutedStep(
+        return ExecutedStep(
             id=step_id,
             input=step.input,
             reference=step.reference,
@@ -118,12 +116,11 @@ class A2AExecutor:
             metrics=step.metrics,
             turns=turns,
         )
-        self._current_steps.append(executed_step)
-        return executed_step
 
-    async def after_scenario(self, original: Scenario, executed: Scenario) -> None:
+    async def after_scenario(self, original: Scenario, executed: ExecutedScenario) -> None:
         """Log scenario completion and finalize collected steps."""
-        self._scenario_steps.append(list(self._current_steps))
+        executed.id = self._current_scenario_id
+        executed.trace_id = self._current_trace_id
         logger.info("Scenario '%s' completed (%d steps)", original.name, len(executed.steps))
 
     # ------------------------------------------------------------------
@@ -132,16 +129,13 @@ class A2AExecutor:
 
     async def run(self) -> ExecutedExperiment:
         """Execute all scenarios and return a fully-typed ExecutedExperiment."""
-        self._scenario_meta = []
-        self._scenario_steps = []
-        self._current_steps = []
-
-        runtime = ExperimentRuntime(
+        runtime: ExperimentRuntime[Experiment, ExecutedExperiment] = ExperimentRuntime(
             on_step=self.on_step,
             input_path=self.input_path,
             output_path=self.output_path,
             before_scenario=self.before_scenario,
             after_scenario=self.after_scenario,
+            output_model=ExecutedExperiment,
         )
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(300)) as client:
@@ -151,28 +145,8 @@ class A2AExecutor:
             self._a2a_client = None
             self._http_client = None
 
-        # Convert Scenario → ExecutedScenario with accumulated metadata.
-        # model_copy preserves the Scenario type, so steps get coerced back to
-        # Step dicts (losing ExecutedStep fields).  We use the separately
-        # collected _scenario_steps which hold the real ExecutedStep objects.
-        executed_scenarios: list[ExecutedScenario] = []
-        for scenario, meta, steps in zip(result.scenarios, self._scenario_meta, self._scenario_steps):
-            executed_scenarios.append(
-                ExecutedScenario(
-                    name=scenario.name,
-                    reference=scenario.reference,
-                    evaluations=scenario.evaluations,
-                    steps=steps,
-                    id=meta["id"],
-                    trace_id=meta["trace_id"],
-                )
-            )
-
-        return ExecutedExperiment(
-            **result.model_dump(exclude={"scenarios"}),
-            id=self.workflow_name,
-            scenarios=executed_scenarios,
-        )
+        result.id = self.workflow_name
+        return result
 
 
 async def main(agent_url: str, workflow_name: str, input_path: str) -> None:
