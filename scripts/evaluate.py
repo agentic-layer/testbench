@@ -8,10 +8,8 @@ from typing import Any
 
 from metrics import GenericMetricsRegistry, MetricResult, dict_to_executed_step
 from metrics.protocol import MetricCallable
-from openai import AsyncOpenAI
 from ragas import Experiment, experiment
 from ragas.backends import LocalJSONLBackend
-from ragas.llms import llm_factory
 
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)
@@ -71,13 +69,13 @@ def load_metrics_config(config_path: str) -> list[dict]:
     return config["metrics"]
 
 
-def instantiate_metric(metric_def: dict, llm: Any, registry: GenericMetricsRegistry) -> tuple[MetricCallable, str]:
+def instantiate_metric(metric_def: dict, llm: str, registry: GenericMetricsRegistry) -> tuple[MetricCallable, str]:
     """
     Instantiate a single metric from its definition via the generic registry.
 
     Args:
         metric_def: Metric definition dictionary
-        llm: LLM wrapper to pass to metric
+        llm: LLM model name (e.g. 'gemini-2.5-flash-lite')
         registry: GenericMetricsRegistry for callable creation
 
     Returns:
@@ -179,7 +177,7 @@ def format_experiment_results(
 async def evaluation_experiment(
     row: dict[str, Any],
     metric_definitions: list[dict],
-    llm: Any,  # LangchainLLMWrapper - using Any to avoid mypy type alias issue
+    llm: str,
     registry: GenericMetricsRegistry,
 ) -> dict[str, Any]:
     """
@@ -191,7 +189,7 @@ async def evaluation_experiment(
     Args:
         row: Dataset row containing user_input, response, retrieved_contexts, reference
         metric_definitions: List of metric definition dicts from config
-        llm: LLM wrapper for metric calculation
+        llm: LLM model name (e.g. 'gemini-2.5-flash-lite')
         registry: GenericMetricsRegistry for callable creation
 
     Returns:
@@ -239,13 +237,6 @@ async def main(
     metric_definitions = load_metrics_config(metrics_config)
     logger.info(f"Loaded {len(metric_definitions)} metric definitions")
 
-    # Create LLM client using the AI-Gateway
-    # Setting a placeholder for the api_key since we instantiate a ChatOpenAI object,
-    # but the AI-Gateway actually uses Gemini under the hood.
-    # Not setting api_key here results in an OpenAIError
-    ragas_llm: AsyncOpenAI = AsyncOpenAI(api_key="Placeholder->NotUsed")
-    llm = llm_factory(model, client=ragas_llm)  # type: ignore[arg-type]
-
     dataset = Experiment.load(name="ragas_experiment", backend=LocalJSONLBackend(root_dir="./data"))
 
     # Extract metric names from definitions for logging
@@ -262,7 +253,7 @@ async def main(
         dataset=dataset,  # type: ignore[arg-type]
         name="ragas_evaluation",
         metric_definitions=metric_definitions,
-        llm=llm,
+        llm=model,
         registry=registry,
     )
 

@@ -5,7 +5,10 @@ import logging
 from typing import Any, Union
 
 import ragas.metrics.collections as metrics_module
-from ragas.messages import AIMessage, HumanMessage, ToolCall as RagasToolCall, ToolMessage
+from openai import AsyncOpenAI
+from ragas.llms import llm_factory
+from ragas.messages import AIMessage, HumanMessage, ToolMessage
+from ragas.messages import ToolCall as RagasToolCall
 from ragas.metrics.collections import BaseMetric
 from schema.models import ExecutedStep, ToolCall, Turn
 
@@ -58,7 +61,7 @@ class RagasMetricCallable:
             params["user_input"] = sample.input
 
         last_ai = next(
-            (t.content for t in reversed(sample.turns) if t.type == "agent"),
+            (t.content for t in reversed(sample.turns or []) if t.type == "agent"),
             sample.input,
         )
         params["response"] = last_ai
@@ -126,13 +129,13 @@ class RagasFrameworkAdapter(FrameworkAdapter):
         """Return discovered RAGAS metric classes."""
         return dict(self._classes)
 
-    def create_callable(self, class_name: str, parameters: dict[str, Any], llm: Any) -> MetricCallable:
+    def create_callable(self, class_name: str, parameters: dict[str, Any], llm: str) -> MetricCallable:
         """Instantiate a RAGAS metric and wrap it as a MetricCallable.
 
         Args:
             class_name: Name of the RAGAS metric class.
             parameters: Constructor parameters.
-            llm: LLM wrapper to inject.
+            llm: LLM model name (e.g. 'gemini-2.5-flash-lite').
 
         Returns:
             RagasMetricCallable wrapping the instantiated metric.
@@ -145,9 +148,12 @@ class RagasFrameworkAdapter(FrameworkAdapter):
                 f"Unknown RAGAS metric class '{class_name}'.\nAvailable: {', '.join(sorted(self._classes.keys()))}"
             )
 
+        client = AsyncOpenAI(api_key="Placeholder->NotUsed")
+        llm_instance = llm_factory(llm, client=client)  # type: ignore[arg-type]
+
         metric_class = self._classes[class_name]
         try:
-            params_with_llm = {**parameters, "llm": llm}
+            params_with_llm = {**parameters, "llm": llm_instance}
             metric = metric_class(**params_with_llm)
         except TypeError as e:
             sig = inspect.signature(metric_class.__init__)

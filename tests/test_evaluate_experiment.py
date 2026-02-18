@@ -103,7 +103,7 @@ async def test_evaluate_step_single_metric(tmp_path: Path) -> None:
     input_file = tmp_path / "input.json"
     input_file.write_text(json.dumps(experiment_data))
 
-    evaluator = MetricEvaluator("test-model", str(input_file), str(tmp_path / "out.json"))
+    evaluator = MetricEvaluator(str(input_file), str(tmp_path / "out.json"))
     evaluator._default_threshold = 0.9
 
     mock_callable = _mock_metric_callable(0.95)
@@ -122,7 +122,7 @@ async def test_evaluate_step_single_metric(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_evaluate_step_threshold_pass(tmp_path: Path) -> None:
     """Score above threshold → result='pass'."""
-    evaluator = MetricEvaluator("m", str(tmp_path / "in.json"), str(tmp_path / "out.json"))
+    evaluator = MetricEvaluator(str(tmp_path / "in.json"), str(tmp_path / "out.json"))
     evaluator._default_threshold = 0.5
 
     mock_callable = _mock_metric_callable(0.8)
@@ -142,7 +142,7 @@ async def test_evaluate_step_threshold_pass(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_evaluate_step_threshold_fail(tmp_path: Path) -> None:
     """Score below threshold → result='fail'."""
-    evaluator = MetricEvaluator("m", str(tmp_path / "in.json"), str(tmp_path / "out.json"))
+    evaluator = MetricEvaluator(str(tmp_path / "in.json"), str(tmp_path / "out.json"))
     evaluator._default_threshold = 0.5
 
     mock_callable = _mock_metric_callable(0.6)
@@ -162,7 +162,7 @@ async def test_evaluate_step_threshold_fail(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_evaluate_step_default_threshold(tmp_path: Path) -> None:
     """When metric has no threshold, default_threshold is used."""
-    evaluator = MetricEvaluator("m", str(tmp_path / "in.json"), str(tmp_path / "out.json"))
+    evaluator = MetricEvaluator(str(tmp_path / "in.json"), str(tmp_path / "out.json"))
     evaluator._default_threshold = 0.8
 
     # Score 0.75 is below default 0.8 → fail
@@ -183,7 +183,7 @@ async def test_evaluate_step_default_threshold(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_evaluate_step_no_metrics(tmp_path: Path) -> None:
     """Step with no metrics → evaluations is None."""
-    evaluator = MetricEvaluator("m", str(tmp_path / "in.json"), str(tmp_path / "out.json"))
+    evaluator = MetricEvaluator(str(tmp_path / "in.json"), str(tmp_path / "out.json"))
 
     step = ExecutedStep(input="q", id="stp_1", metrics=None)
     result = await evaluator.on_step(step, MagicMock())
@@ -195,7 +195,7 @@ async def test_evaluate_step_no_metrics(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_evaluate_step_preserves_fields(tmp_path: Path) -> None:
     """EvaluatedStep preserves all original ExecutedStep fields."""
-    evaluator = MetricEvaluator("m", str(tmp_path / "in.json"), str(tmp_path / "out.json"))
+    evaluator = MetricEvaluator(str(tmp_path / "in.json"), str(tmp_path / "out.json"))
 
     mock_callable = _mock_metric_callable(0.9)
 
@@ -222,7 +222,7 @@ async def test_evaluate_step_preserves_fields(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_metric_error_handling(tmp_path: Path) -> None:
     """When a metric raises an exception, it is skipped and others continue."""
-    evaluator = MetricEvaluator("m", str(tmp_path / "in.json"), str(tmp_path / "out.json"))
+    evaluator = MetricEvaluator(str(tmp_path / "in.json"), str(tmp_path / "out.json"))
     evaluator._default_threshold = 0.5
 
     failing_callable = AsyncMock(side_effect=RuntimeError("LLM timeout"))
@@ -281,15 +281,11 @@ async def test_evaluate_experiment_full(tmp_path: Path) -> None:
     input_file.write_text(json.dumps(experiment_data))
     output_file = tmp_path / "output.json"
 
-    evaluator = MetricEvaluator("test-model", str(input_file), str(output_file))
+    evaluator = MetricEvaluator(str(input_file), str(output_file))
 
     mock_callable = _mock_metric_callable(0.85)
 
-    with (
-        patch.object(evaluator._registry, "get_metric_callable", return_value=mock_callable),
-        patch("examples.evaluate_experiment.llm_factory", return_value=MagicMock()),
-        patch("examples.evaluate_experiment.AsyncOpenAI", return_value=MagicMock()),
-    ):
+    with patch.object(evaluator._registry, "get_metric_callable", return_value=mock_callable):
         result = await evaluator.run()
 
     assert isinstance(result, EvaluatedExperiment)
@@ -318,16 +314,12 @@ async def test_main_reads_and_writes_json(tmp_path: Path) -> None:
 
     mock_callable = _mock_metric_callable(0.95)
 
-    with (
-        patch("examples.evaluate_experiment.GenericMetricsRegistry.create_default") as mock_registry_cls,
-        patch("examples.evaluate_experiment.llm_factory", return_value=MagicMock()),
-        patch("examples.evaluate_experiment.AsyncOpenAI", return_value=MagicMock()),
-    ):
+    with patch("examples.evaluate_experiment.GenericMetricsRegistry.create_default") as mock_registry_cls:
         mock_registry = MagicMock()
         mock_registry.get_metric_callable.return_value = mock_callable
         mock_registry_cls.return_value = mock_registry
 
-        await main("test-model", str(input_file), str(output_file))
+        await main(str(input_file), str(output_file))
 
     assert output_file.exists()
     data = json.loads(output_file.read_text())
@@ -339,7 +331,7 @@ async def test_main_reads_and_writes_json(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_evaluate_step_multiple_metrics(tmp_path: Path) -> None:
     """Step with multiple metrics produces multiple Evaluations."""
-    evaluator = MetricEvaluator("m", str(tmp_path / "in.json"), str(tmp_path / "out.json"))
+    evaluator = MetricEvaluator(str(tmp_path / "in.json"), str(tmp_path / "out.json"))
     evaluator._default_threshold = 0.5
 
     scores = iter([0.9, 0.7])

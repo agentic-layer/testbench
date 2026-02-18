@@ -14,21 +14,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from typing import Any, Literal
+from typing import Literal
 
 from metrics import GenericMetricsRegistry, MetricResult
-from openai import AsyncOpenAI
-from ragas.llms import llm_factory
 from schema.models import (
     EvaluatedExperiment,
     EvaluatedStep,
     Evaluation,
     ExecutedExperiment,
     ExecutedStep,
+    Experiment,
     Metric,
     Result,
     Scenario,
-    Step,
+    Step, ExecutedScenario,
 )
 from schema.runtime import ExperimentRuntime
 
@@ -46,13 +45,12 @@ class MetricEvaluator:
     ``EvaluatedStep`` / ``EvaluatedScenario`` types.
     """
 
-    def __init__(self, model: str, input_path: str, output_path: str) -> None:
-        self.model = model
+    def __init__(self, input_path: str, output_path: str) -> None:
         self.input_path = input_path
         self.output_path = output_path
 
         self._registry = GenericMetricsRegistry.create_default()
-        self._llm: Any = None
+        self._model: str = ""
         self._default_threshold: float = 0.9
 
         # Per-scenario collection state (reset in before_scenario)
@@ -61,6 +59,11 @@ class MetricEvaluator:
     # ------------------------------------------------------------------
     # Hooks
     # ------------------------------------------------------------------
+
+    async def before_run(self, experiment: Experiment) -> None:
+        """Extract default_threshold and model from the parsed experiment."""
+        self._default_threshold = experiment.default_threshold
+        self._model = experiment.llm_as_a_judge_model or ""
 
     async def before_scenario(self, scenario: Scenario) -> None:
         """Reset per-scenario step collection."""
@@ -71,20 +74,18 @@ class MetricEvaluator:
         """Finalise collected steps for this scenario."""
         logger.info("Scenario '%s' evaluated (%d steps)", original.name, len(self._current_steps))
 
-    async def on_step(self, step: Step, scenario: Scenario) -> EvaluatedStep:
+    async def on_step(self, step: ExecutedStep, scenario: ExecutedScenario) -> EvaluatedStep:
         """Evaluate all metrics defined on *step* and return an ``EvaluatedStep``."""
-        executed_step: ExecutedStep = step  # type: ignore[assignment]
-
         evaluations: list[Evaluation] = []
-        metrics: list[Metric] = executed_step.metrics or []
+        metrics: list[Metric] = step.metrics or []
 
         for metric in metrics:
             try:
                 params = metric.parameters or {}
                 available = self._registry.list_metrics()
                 logger.info("  Available metrics: %s", available)
-                callable_ = self._registry.get_metric_callable("ragas", metric.metric_name, params, self._llm)
-                result: MetricResult = await callable_(executed_step)
+                callable_ = self._registry.get_metric_callable("ragas", metric.metric_name, params, self._model)
+                result: MetricResult = await callable_(step)
                 score = result.score
 
                 threshold = metric.threshold if metric.threshold is not None else self._default_threshold
@@ -107,12 +108,12 @@ class MetricEvaluator:
                 logger.exception("  Metric '%s' failed, skipping", metric.metric_name)
 
         evaluated = EvaluatedStep(
-            input=executed_step.input,
-            reference=executed_step.reference,
-            custom_values=executed_step.custom_values,
-            metrics=executed_step.metrics,
-            id=executed_step.id,
-            turns=executed_step.turns,
+            input=step.input,
+            reference=step.reference,
+            custom_values=step.custom_values,
+            metrics=step.metrics,
+            id=step.id,
+            turns=step.turns,
             evaluations=evaluations if evaluations else None,
         )
         self._current_steps.append(evaluated)
@@ -124,16 +125,6 @@ class MetricEvaluator:
 
     async def run(self) -> EvaluatedExperiment:
         """Execute evaluation across all scenarios and return a fully-typed result."""
-        import json
-
-        # Read default_threshold from the experiment BEFORE evaluating steps.
-        with open(self.input_path) as f:
-            exp_data = json.load(f)
-        self._default_threshold = exp_data.get("default_threshold", 0.9)
-
-        ragas_llm: AsyncOpenAI = AsyncOpenAI(api_key="Placeholder->NotUsed")
-        self._llm = llm_factory(self.model, client=ragas_llm)  # type: ignore[arg-type]
-
         self._current_steps = []
 
         runtime: ExperimentRuntime[ExecutedExperiment, EvaluatedExperiment] = ExperimentRuntime(
@@ -142,6 +133,7 @@ class MetricEvaluator:
             output_path=self.output_path,
             input_model=ExecutedExperiment,
             output_model=EvaluatedExperiment,
+            before_run=self.before_run,
             before_scenario=self.before_scenario,
             after_scenario=self.after_scenario,
         )
@@ -152,10 +144,9 @@ class MetricEvaluator:
         return result
 
 
-async def main(model: str, input_path: str, output_path: str) -> None:
+async def main(input_path: str, output_path: str) -> None:
     """Load an executed experiment, evaluate it, and write the result."""
     evaluator = MetricEvaluator(
-        model=model,
         input_path=input_path,
         output_path=output_path,
     )
@@ -177,13 +168,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Read model from the experiment's llm_as_a_judge_model field
-    import json
-
-    with open(args.input) as f:
-        exp_data = json.load(f)
-    model = exp_data.get("llm_as_a_judge_model")
-    if model is None:
-        parser.error("Experiment has no llm_as_a_judge_model field")
-
-    asyncio.run(main(model, args.input, args.output))
+    asyncio.run(main(args.input, args.output))

@@ -24,6 +24,7 @@ ExperimentOut = TypeVar("ExperimentOut", bound=Experiment)
 # Hook type aliases (generic – parameterise for concrete pipelines)
 # ---------------------------------------------------------------------------
 
+BeforeRunHook = Callable[[ExperimentIn], Awaitable[None]]
 BeforeScenarioHook = Callable[[ScenarioIn], Awaitable[None]]
 AfterScenarioHook = Callable[[ScenarioIn, ScenarioOut], Awaitable[None]]
 OnStepHook = Callable[[StepIn, ScenarioIn], Awaitable[StepOut]]
@@ -62,6 +63,7 @@ class ExperimentRuntime(Generic[ExperimentIn, ExperimentOut]):
         on_step: OnStepHook[Step, Scenario, Step],
         input_path: str | Path,
         output_path: str | Path,
+        before_run: BeforeRunHook[Experiment] | None = None,
         before_scenario: BeforeScenarioHook[Scenario] | None = None,
         after_scenario: AfterScenarioHook[Scenario, Scenario] | None = None,
         input_model: type[ExperimentIn] = Experiment,  # type: ignore[assignment]
@@ -70,6 +72,7 @@ class ExperimentRuntime(Generic[ExperimentIn, ExperimentOut]):
         self._on_step = on_step
         self._input_path = Path(input_path)
         self._output_path = Path(output_path)
+        self._before_run = before_run
         self._before_scenario = before_scenario
         self._after_scenario = after_scenario
         self._input_model = input_model
@@ -80,6 +83,9 @@ class ExperimentRuntime(Generic[ExperimentIn, ExperimentOut]):
         """Load experiment, execute all scenarios, write result, and return it."""
         data = json.loads(self._input_path.read_text())
         experiment = self._input_model.model_validate(data)
+
+        if self._before_run is not None:
+            await self._before_run(experiment)
 
         executed_scenarios: list[Scenario] = []
 

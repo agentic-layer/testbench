@@ -18,13 +18,13 @@ class FrameworkAdapter(ABC):
         """
 
     @abstractmethod
-    def create_callable(self, class_name: str, parameters: dict[str, Any], llm: Any) -> MetricCallable:
+    def create_callable(self, class_name: str, parameters: dict[str, Any], llm: str) -> MetricCallable:
         """Create a MetricCallable for the given metric class.
 
         Args:
             class_name: Name of the metric class.
             parameters: Constructor parameters for the metric.
-            llm: LLM wrapper to pass to the metric.
+            llm: LLM model name (e.g. 'gemini-2.5-flash-lite').
 
         Returns:
             A MetricCallable that wraps the framework-specific metric.

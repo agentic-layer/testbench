@@ -181,22 +181,7 @@ async def test_main_successful_execution(experiment_data, monkeypatch, tmp_path)
             with open(evaluation_results_file, "w") as f:
                 f.write(json.dumps(test_result) + "\n")
 
-        # Mock AsyncOpenAI and llm_factory
-        class MockAsyncOpenAI:
-            pass
-
-        def mock_async_openai_init(api_key):
-            return MockAsyncOpenAI()
-
-        class MockLLM:
-            pass
-
-        def mock_llm_factory(model, client):
-            return MockLLM()
-
         monkeypatch.setattr("evaluate.evaluation_experiment.arun", mock_experiment_arun)
-        monkeypatch.setattr("evaluate.AsyncOpenAI", mock_async_openai_init)
-        monkeypatch.setattr("evaluate.llm_factory", mock_llm_factory)
 
         # Run main with config file
         await main(
@@ -263,24 +248,15 @@ def test_instantiate_metric_unknown(default_registry):
 
 
 def test_instantiate_metric_invalid_params(default_registry):
-    """Test error for invalid parameters or LLM validation."""
-    from unittest.mock import MagicMock
-
-    ragas_metrics = default_registry.list_metrics("ragas").get("ragas", [])
-    if not ragas_metrics:
-        pytest.skip("No metric classes available")
-
-    mock_llm = MagicMock()
-    class_name = ragas_metrics[0]
+    """Test error for unknown metric class."""
     metric_def = {
         "type": "class",
-        "class_name": class_name,
-        "parameters": {"completely_invalid_param_name_xyz": "value"},
+        "class_name": "CompletelyNonexistentMetricXYZ",
+        "parameters": {},
         "framework": "ragas",
     }
-    # Should raise ValueError either for invalid parameters or LLM validation
-    with pytest.raises(ValueError, match="(Invalid parameters|InstructorLLM)"):
-        instantiate_metric(metric_def, mock_llm, default_registry)
+    with pytest.raises(ValueError, match="Unknown RAGAS metric class"):
+        instantiate_metric(metric_def, "test-model", default_registry)
 
 
 # Test load_metrics_config

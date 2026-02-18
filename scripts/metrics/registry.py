@@ -23,7 +23,7 @@ class GenericMetricsRegistry:
         self._adapters[adapter.framework_name] = adapter
 
     def get_metric_callable(
-        self, framework: str, class_name: str, parameters: dict[str, Any], llm: Any
+        self, framework: str, class_name: str, parameters: dict[str, Any], llm: str
     ) -> MetricCallable:
         """Get a MetricCallable for the given framework and metric class.
 
@@ -31,7 +31,7 @@ class GenericMetricsRegistry:
             framework: Framework name (e.g. 'ragas').
             class_name: Metric class name.
             parameters: Constructor parameters.
-            llm: LLM wrapper.
+            llm: LLM model name (e.g. 'gemini-2.5-flash-lite').
 
         Returns:
             A MetricCallable wrapping the metric.

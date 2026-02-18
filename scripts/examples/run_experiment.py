@@ -19,10 +19,10 @@ from opentelemetry import trace
 from otel_setup import setup_otel
 from schema.a2a_client import A2AStepClient
 from schema.models import (
-    Experiment,
     ExecutedExperiment,
     ExecutedScenario,
     ExecutedStep,
+    Experiment,
     Scenario,
     Step,
 )
