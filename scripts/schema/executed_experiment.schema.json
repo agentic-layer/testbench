@@ -42,12 +42,6 @@
         "steps": {
           "type": "array",
           "items": { "$ref": "#/definitions/step" }
-        },
-        "reference": { "$ref": "common.schema.json#/definitions/reference" },
-        "evaluations": {
-          "type": "array",
-          "items": { "$ref": "common.schema.json#/definitions/metric" },
-          "description": "List of metric configurations to evaluate this step."
         }
       }
     },

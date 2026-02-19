@@ -61,8 +61,6 @@ class Scenario(BaseModel):
 
     name: str
     steps: list[Step]
-    reference: Reference | None = None
-    evaluations: list[Metric] | None = None
 
 
 class Experiment(BaseModel):
@@ -129,7 +127,6 @@ class EvaluatedStep(ExecutedStep):
 class EvaluatedScenario(ExecutedScenario):
     """An executed scenario enriched with evaluation results."""
 
-    evaluations: list[Evaluation] | None = None  # type: ignore[assignment]
     steps: list[EvaluatedStep]  # type: ignore[assignment]
 
 

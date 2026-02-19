@@ -42,12 +42,6 @@
         "steps": {
           "type": "array",
           "items": { "$ref": "#/definitions/step" }
-        },
-        "reference": { "$ref": "common.schema.json#/definitions/reference" },
-        "evaluations": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/evaluation" },
-          "description": "List of evaluation results for this scenario."
         }
       }
     },
