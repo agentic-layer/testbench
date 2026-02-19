@@ -98,7 +98,7 @@ class RagasMetricCallable:
         return [
             RagasToolCall(  # type: ignore[misc]
                 name=tc.name,
-                args=tc.arguments,
+                args=tc.args,
             )
             for tc in tool_calls
         ]

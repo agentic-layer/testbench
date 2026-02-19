@@ -74,10 +74,10 @@ class TestDictToExecutedStep:
         assert step.reference.tool_calls is not None
         assert len(step.reference.tool_calls) == 2
         assert step.reference.tool_calls[0].name == "get_weather"
-        assert step.reference.tool_calls[0].arguments == {"city": "Berlin"}
+        assert step.reference.tool_calls[0].args == {"city": "Berlin"}
         # 'args' key should also work (fallback)
         assert step.reference.tool_calls[1].name == "get_time"
-        assert step.reference.tool_calls[1].arguments == {"tz": "CET"}
+        assert step.reference.tool_calls[1].args == {"tz": "CET"}
 
     def test_minimal_input(self):
         """Minimal row with just user_input."""

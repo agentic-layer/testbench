@@ -15,7 +15,7 @@ class ToolCall(BaseModel):
     """Expected tool call in a reference."""
 
     name: str
-    arguments: dict[str, Any]
+    args: dict[str, Any]
 
 
 class Reference(BaseModel):
@@ -26,19 +26,12 @@ class Reference(BaseModel):
     topics: list[str] | None = None
 
 
-class TurnToolCall(BaseModel):
-    """Tool call recorded within a conversation turn."""
-
-    name: str
-    args: dict[str, Any]
-
-
 class Turn(BaseModel):
     """A single turn in a multi-turn conversation."""
 
     content: str
     type: Literal["human", "agent", "tool"]
-    tool_calls: list[TurnToolCall] | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class Metric(BaseModel):

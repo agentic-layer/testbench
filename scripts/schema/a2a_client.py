@@ -13,7 +13,7 @@ import httpx
 from a2a.client.client import Client, ClientConfig
 from a2a.client.client_factory import ClientFactory, minimal_agent_card
 from a2a.types import AgentCard, Message, Part, Role, TextPart
-from schema.models import Turn, TurnToolCall
+from schema.models import Turn, ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ def _extract_turns_from_history(history: list[Any], turns: list[Turn]) -> str:
             continue
 
         if msg.role == Role.agent:
-            tool_calls_in_msg: list[TurnToolCall] = []
+            tool_calls_in_msg: list[ToolCall] = []
             tool_responses: list[str] = []
             text_content = ""
 
@@ -129,7 +129,7 @@ def _extract_turns_from_history(history: list[Any], turns: list[Turn]) -> str:
                 if isinstance(metadata_tool_calls, list):
                     for tc in metadata_tool_calls:
                         if isinstance(tc, dict) and "name" in tc:
-                            tool_calls_in_msg.append(TurnToolCall(name=tc["name"], args=tc.get("args", {})))
+                            tool_calls_in_msg.append(ToolCall(name=tc["name"], args=tc.get("args", {})))
 
             # Strategy 2: Check parts for DataParts and TextParts
             for part in msg.parts:
@@ -146,7 +146,7 @@ def _extract_turns_from_history(history: list[Any], turns: list[Turn]) -> str:
                 ):
                     if "args" in actual_part.data and "response" not in actual_part.data:
                         tool_calls_in_msg.append(
-                            TurnToolCall(
+                            ToolCall(
                                 name=actual_part.data["name"],
                                 args=actual_part.data.get("args", {}),
                             )

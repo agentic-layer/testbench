@@ -67,7 +67,7 @@ def dict_to_executed_step(row: dict[str, Any]) -> ExecutedStep:
         ref_tool_calls: list[ToolCall] | None = None
         if isinstance(ref_tool_calls_raw, list):
             ref_tool_calls = [
-                ToolCall(name=tc.get("name", ""), arguments=tc.get("args", tc.get("arguments")) or {})
+                ToolCall(name=tc.get("name", ""), args=tc.get("args", tc.get("arguments")) or {})
                 for tc in ref_tool_calls_raw
                 if isinstance(tc, dict)
             ]
