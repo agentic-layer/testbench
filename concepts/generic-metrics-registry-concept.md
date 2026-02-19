@@ -31,7 +31,7 @@ class MetricsRegistry:
 
 1. **Generic registry**: Not limited to RAGAS metrics
 2. **Callable interface**: Registry returns a callable, not a metric instance
-3. **Callable signature**: `async def(sample: Step, **metric_args) -> Result` (where `Step` is defined in `scripts/schema/executed_experiment.schema.json` and `Result` contains `score: float` and `reason: str | None`)
+3. **Callable signature**: `async def(sample: ExecutedStep, **metric_args) -> MetricResult` (where `ExecutedStep` is defined in `scripts/schema/executed_experiment.schema.json` and `MetricResult` contains `score: float` and `reason: str | None`)
 4. **Easy extensibility**: Adding new frameworks should be straightforward
 5. **Configurable naming**: Support framework-prefixed names with optional aliases
 
@@ -87,7 +87,7 @@ from dataclasses import dataclass
 from typing import Protocol, Any
 
 @dataclass
-class Result:
+class MetricResult:
     """
     Unified result from a metric evaluation.
 
@@ -107,27 +107,27 @@ class MetricCallable(Protocol):
 
     async def __call__(
         self,
-        sample: Step,
+        sample: ExecutedStep,
         **metric_args: Any
-    ) -> Result:
+    ) -> MetricResult:
         """
         Evaluate a single sample.
 
         Args:
-            sample: A Step object as defined in executed_experiment.schema.json,
-                     containing input, turns, reference, custom_values, and evaluations.
+            sample: An ExecutedStep object as defined in executed_experiment.schema.json,
+                     containing input, turns, reference, custom_values, and metrics.
             **metric_args: Additional runtime arguments for the metric
 
         Returns:
-            Result containing score (0.0-1.0) and optional reason
+            MetricResult containing score (0.0-1.0) and optional reason
         """
         ...
 ```
 
 **Design Rationale**:
-- **Protocol (not ABC)**: Enables structural subtyping - any object with `async __call__(sample, **args) -> Result` satisfies the protocol
-- **Structured return type**: `Result` dataclass with `score: float` and `reason: str | None` — provides both the numeric result and the LLM-generated reasoning behind it
-- **Step as input**: Uses the `Step` type defined in `executed_experiment.schema.json`, providing a structured input with `input`, `turns`, `reference`, `custom_values`, and `evaluations` fields
+- **Protocol (not ABC)**: Enables structural subtyping - any object with `async __call__(sample, **args) -> MetricResult` satisfies the protocol
+- **Structured return type**: `MetricResult` dataclass with `score: float` and `reason: str | None` — provides both the numeric result and the LLM-generated reasoning behind it
+- **ExecutedStep as input**: Uses the `ExecutedStep` type defined in `executed_experiment.schema.json`, providing a structured input with `input`, `turns`, `reference`, `custom_values`, and `metrics` fields
 - **Runtime args**: Allows passing additional parameters at evaluation time
 
 ### 2. FrameworkAdapter Abstract Base Class
@@ -209,7 +209,7 @@ Wraps a RAGAS metric instance to conform to `MetricCallable`
 
 **Parameter filtering**: Only passes parameters the metric expects
 **Format translation**: Converts generic sample → RAGAS conventions
-**Result extraction**: Unwraps `MetricResult` into `Result(score, reason)`
+**Result extraction**: Unwraps framework result into `MetricResult(score, reason)`
 **No metric_args usage yet**: Reserved for future use
 
 #### RagasFrameworkAdapter

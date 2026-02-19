@@ -16,10 +16,10 @@
           "description": "Expected tool calls the agent should make",
           "items": {
             "type": "object",
-            "required": ["name", "arguments"],
+            "required": ["name", "args"],
             "properties": {
               "name": { "type": "string" },
-              "arguments": {
+              "args": {
                 "type": "object",
                 "description": "Key-value pairs of tool arguments."
               }
@@ -43,7 +43,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["human", "ai", "tool"],
+          "enum": ["human", "agent", "tool"],
           "description": "The role of the entity generating the content."
         },
         "tool_calls": {

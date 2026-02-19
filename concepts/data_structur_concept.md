@@ -78,7 +78,7 @@ Experiment
     │   ├── input (string) - User query to agent
     │   ├── turns[] (array) - A2A conversation history
     │   │   ├── content (string) - Message content
-    │   │   ├── type (enum) - "human" | "ai" | "tool"
+    │   │   ├── type (enum) - "human" | "agent" | "tool"
     │   │   └── tool_calls[] (array, optional) - Tool invocations
     │   ├── reference (object, optional)
     │   │   ├── response (string) - Expected answer
@@ -86,14 +86,10 @@ Experiment
     │   │   ├── topics[] (array) - Expected topics covered
     │   │   └── ... (other reference fields)
     │   ├── custom_values (object, optional) - Custom metadata
-    │   └── evaluations[] (array) - Metric configurations/results
+    │   └── metrics[] (array) - Metric configurations
     │       ├── metric_name (string) - Metric identifier
     │       ├── threshold (number, optional) - Override threshold
-    │       ├── parameters (object, optional) - Metric config
-    │       └── result (object) - Evaluation result (added by evaluate.py)
-    │           ├── result (enum) - "pass" | "fail"
-    │           ├── score (number) - 0.0-1.0
-    │           └── details (object) - Additional breakdown
+    │       └── parameters (object, optional) - Metric config
     └── evaluations[] (array, optional) - Scenario-level metrics
 ```
 
@@ -120,9 +116,9 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
           "input": "What's the weather in NYC?",
           "reference": {
             "response": "The weather in NYC is sunny and 70F.",
-            "tool_calls": [{"name": "get_weather", "arguments": {"city": "NYC"}}]
+            "tool_calls": [{"name": "get_weather", "args": {"city": "NYC"}}]
           },
-          "evaluations": [
+          "metrics": [
             {"metric_name": "AnswerAccuracy", "threshold": 0.9},
             {"metric_name": "ToolCallAccuracy", "threshold": 1.0}
           ]
@@ -154,23 +150,21 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
     - `args` (object) - Tool arguments
 
 **PRESERVED:**
-- All user input data (llm_as_a_judge_model, default_threshold, scenarios, steps, evaluations as metric configurations)
+- All user input data (llm_as_a_judge_model, default_threshold, scenarios, steps, metrics as metric configurations)
 
 #### evaluate.py execution
 
-**ADDED within each metric in evaluations[]:**
-- `result` (object) - Evaluation result containing:
-  - `result` (string) - "pass" or "fail" based on threshold comparison
-  - `score` (number) - 0.0-1.0 computed metric score from LLM-as-judge
-  - `details` (object) - Additional evaluation breakdown and reasoning
+**ADDED at step level:**
+- `evaluations[]` (array) - List of `Evaluation` objects, each containing:
+  - `metric` (object) - The metric configuration (metric_name, threshold, parameters)
+  - `result` (object) - Evaluation result containing:
+    - `result` (string) - "pass" or "fail" based on threshold comparison
+    - `score` (number) - 0.0-1.0 computed metric score from LLM-as-judge
+    - `details` (object) - Additional evaluation breakdown and reasoning
 
 **PRESERVED:**
 - All data from executed_experiment including IDs, trace_id, turns
-
-**TRANSFORMED:**
-- evaluations[] changes from metric configurations → metric WITH results
-- The original metric config fields (metric_name, threshold, parameters) remain intact
-- The `result` object is added alongside them
+- `metrics[]` at step level remains unchanged
 
 ### Complete Data Flow with Concrete Examples
 
@@ -194,11 +188,11 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             "tool_calls": [
               {
                 "name": "get_weather",
-                "arguments": {"city": "NYC"}
+                "args": {"city": "NYC"}
               }
             ]
           },
-          "evaluations": [
+          "metrics": [
             {
               "metric_name": "AnswerAccuracy",
               "threshold": 0.9
@@ -217,11 +211,11 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             "tool_calls": [
               {
                 "name": "get_weather",
-                "arguments": {"city": "London"}
+                "args": {"city": "London"}
               }
             ]
           },
-          "evaluations": [
+          "metrics": [
             {
               "metric_name": "AnswerAccuracy"
             }
@@ -242,7 +236,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             "expected_intent": "flight_booking",
             "priority": "high"
           },
-          "evaluations": [
+          "metrics": [
             {
               "metric_name": "IntentClassification", # Custom metric
               "threshold": 0.95
@@ -288,7 +282,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "Let me check the current weather in New York City for you.",
-              "type": "ai",
+              "type": "agent",
               "tool_calls": [
                 {
                   "name": "get_weather",
@@ -302,7 +296,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "It's currently sunny and 70°F in New York City with 45% humidity.",
-              "type": "ai"
+              "type": "agent"
             }
           ],
           "reference": {
@@ -310,12 +304,12 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             "tool_calls": [
               {
                 "name": "get_weather",
-                "arguments": {"city": "NYC"}
+                "args": {"city": "NYC"}
               }
             ],
             "topics": ["weather", "temperature", "NYC"]
           },
-          "evaluations": [
+          "metrics": [
             {
               "metric_name": "AnswerAccuracy",
               "threshold": 0.9
@@ -337,7 +331,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "I'll get the weather information for London.",
-              "type": "ai",
+              "type": "agent",
               "tool_calls": [
                 {
                   "name": "get_weather",
@@ -351,7 +345,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "London is currently experiencing rainy weather with a temperature of 12°C and 85% humidity.",
-              "type": "ai"
+              "type": "agent"
             }
           ],
           "reference": {
@@ -359,11 +353,11 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             "tool_calls": [
               {
                 "name": "get_weather",
-                "arguments": {"city": "London"}
+                "args": {"city": "London"}
               }
             ]
           },
-          "evaluations": [
+          "metrics": [
             {
               "metric_name": "AnswerAccuracy"
             }
@@ -386,7 +380,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "I'd be happy to help you book a flight to Paris! To find the best options, could you please tell me what date you'd like to travel?",
-              "type": "ai"
+              "type": "agent"
             }
           ],
           "reference": {
@@ -397,7 +391,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             "expected_intent": "flight_booking",
             "priority": "high"
           },
-          "evaluations": [
+          "metrics": [
             {
               "metric_name": "IntentClassification",
               "threshold": 0.95
@@ -449,7 +443,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "Let me check the current weather in New York City for you.",
-              "type": "ai",
+              "type": "agent",
               "tool_calls": [
                 {
                   "name": "get_weather",
@@ -463,7 +457,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "It's currently sunny and 70°F in New York City with 45% humidity.",
-              "type": "ai"
+              "type": "agent"
             }
           ],
           "reference": {
@@ -471,15 +465,17 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             "tool_calls": [
               {
                 "name": "get_weather",
-                "arguments": {"city": "NYC"}
+                "args": {"city": "NYC"}
               }
             ],
             "topics": ["weather", "temperature", "NYC"]
           },
           "evaluations": [
             {
-              "metric_name": "AnswerAccuracy",
-              "threshold": 0.9,
+              "metric": {
+                "metric_name": "AnswerAccuracy",
+                "threshold": 0.9
+              },
               "result": {
                 "result": "pass",
                 "score": 0.92,
@@ -491,9 +487,11 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
               }
             },
             {
-              "metric_name": "ToolCallAccuracy",
-              "threshold": 1.0,
-              "parameters": {"exact_match": true},
+              "metric": {
+                "metric_name": "ToolCallAccuracy",
+                "threshold": 1.0,
+                "parameters": {"exact_match": true}
+              },
               "result": {
                 "result": "pass",
                 "score": 1.0,
@@ -516,7 +514,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "I'll get the weather information for London.",
-              "type": "ai",
+              "type": "agent",
               "tool_calls": [
                 {
                   "name": "get_weather",
@@ -530,7 +528,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "London is currently experiencing rainy weather with a temperature of 12°C and 85% humidity.",
-              "type": "ai"
+              "type": "agent"
             }
           ],
           "reference": {
@@ -538,13 +536,15 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             "tool_calls": [
               {
                 "name": "get_weather",
-                "arguments": {"city": "London"}
+                "args": {"city": "London"}
               }
             ]
           },
           "evaluations": [
             {
-              "metric_name": "AnswerAccuracy",
+              "metric": {
+                "metric_name": "AnswerAccuracy"
+              },
               "result": {
                 "result": "fail",
                 "score": 0.87,
@@ -574,7 +574,7 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
             },
             {
               "content": "I'd be happy to help you book a flight to Paris! To find the best options, could you please tell me what date you'd like to travel?",
-              "type": "ai"
+              "type": "agent"
             }
           ],
           "reference": {
@@ -587,8 +587,10 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
           },
           "evaluations": [
             {
-              "metric_name": "IntentClassification",
-              "threshold": 0.95,
+              "metric": {
+                "metric_name": "IntentClassification",
+                "threshold": 0.95
+              },
               "result": {
                 "result": "pass",
                 "score": 0.98,
@@ -604,9 +606,11 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
       ],
       "evaluations": [
         {
-          "metric_name": "ScenarioCoherence",
-          "threshold": 0.85,
-          "parameters": {"check_continuity": true},
+          "metric": {
+            "metric_name": "ScenarioCoherence",
+            "threshold": 0.85,
+            "parameters": {"check_continuity": true}
+          },
           "result": {
             "result": "pass",
             "score": 0.90,
@@ -624,11 +628,9 @@ Users create `data/datasets/experiment.json` conforming to this schema BEFORE ru
 ```
 
 **Key Changes from Example 2:**
-- Added `result` object to each metric in `evaluations[]` arrays
-- Each result contains:
-  - `result`: "pass" or "fail" based on threshold comparison
-  - `score`: 0.0-1.0 metric score from LLM-as-judge
-  - `details`: Additional breakdown and reasoning
-- Metric configurations (metric_name, threshold, parameters) remain intact
+- Added `evaluations[]` at step level containing `Evaluation` objects with nested structure:
+  - `metric`: The metric configuration (metric_name, threshold, parameters)
+  - `result`: Evaluation outcome (result, score, details)
+- Scenario-level `evaluations[]` also uses the nested `{ metric, result }` structure
 - Step with score 0.87 fails because it's below default_threshold (0.9)
 - All IDs, trace_id, turns preserved unchanged
