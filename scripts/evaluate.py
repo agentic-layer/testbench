@@ -5,8 +5,8 @@ generic metrics registry, and writes an ``evaluated_experiment.json``.
 
 Usage::
 
-    python3 testbench/evaluate.py --model gemini-2.5-flash-lite
-    python3 testbench/evaluate.py --input data/experiments/executed_experiment.json
+    python3 scripts/evaluate.py --model gemini-2.5-flash-lite
+    python3 scripts/evaluate.py --input data/experiments/executed_experiment.json
 """
 
 from __future__ import annotations

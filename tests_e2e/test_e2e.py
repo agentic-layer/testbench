@@ -45,7 +45,7 @@ class E2ETestRunner:
         self.otlp_endpoint = otlp_endpoint
 
         # Define script paths
-        self.scripts_dir = Path(__file__).parent.parent / "testbench"
+        self.scripts_dir = Path(__file__).parent.parent / "scripts"
         self.setup_script = self.scripts_dir / "setup.py"
         self.run_script = self.scripts_dir / "run.py"
         self.evaluate_script = self.scripts_dir / "evaluate.py"

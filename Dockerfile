@@ -14,8 +14,8 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies using UV
 RUN uv sync
 
-# Copy testbench package to root dir
-COPY testbench/ ./
+# Copy scripts package to root dir
+COPY scripts/ ./
 
 # Create directories for data and results
 RUN mkdir -p data/datasets data/experiments results

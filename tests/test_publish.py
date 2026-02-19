@@ -10,13 +10,12 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "testbench"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from publish import (
+    MetricsPublisher,
     _get_user_input_truncated,
     _is_metric_value,
-    create_and_push_metrics,
-    load_evaluation_data,
     publish_metrics,
 )
 from schema.models import (
@@ -83,31 +82,11 @@ def _make_step(
     return step
 
 
-# Mock classes for OpenTelemetry meter provider
-class _OtelMockMeter:
-    def create_counter(self, name, **kwargs):
-        return _OtelMockCounter()
-
-    def create_histogram(self, name, **kwargs):
-        return _OtelMockHistogram()
-
-    def create_gauge(self, name, **kwargs):
-        return _OtelMockGauge()
-
-
-class _OtelMockCounter:
-    def add(self, amount, attributes=None):
-        pass
-
-
-class _OtelMockHistogram:
-    def record(self, amount, attributes=None):
-        pass
-
-
-class _OtelMockGauge:
-    def set(self, value, attributes=None):
-        pass
+def _write_experiment(tmp_path: Path, experiment: EvaluatedExperiment) -> str:
+    """Write experiment to a JSON file and return the path."""
+    file_path = tmp_path / "evaluated.json"
+    file_path.write_text(experiment.model_dump_json(indent=2))
+    return str(file_path)
 
 
 # ---------------------------------------------------------------------------
@@ -165,29 +144,7 @@ def test_get_user_input_truncated_custom_length():
 
 
 # ---------------------------------------------------------------------------
-# Tests: load_evaluation_data
-# ---------------------------------------------------------------------------
-
-
-def test_loads_evaluation_data(tmp_path):
-    """load_evaluation_data returns a valid EvaluatedExperiment."""
-    experiment = _make_evaluated_experiment()
-    file_path = tmp_path / "evaluated.json"
-    file_path.write_text(experiment.model_dump_json(indent=2))
-
-    result = load_evaluation_data(str(file_path))
-    assert isinstance(result, EvaluatedExperiment)
-    assert len(result.scenarios) == 1
-    assert len(result.scenarios[0].steps) == 1
-
-
-def test_load_evaluation_data_file_not_found(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        load_evaluation_data(str(tmp_path / "nonexistent.json"))
-
-
-# ---------------------------------------------------------------------------
-# Tests: create_and_push_metrics
+# Tests: MetricsPublisher (via run())
 # ---------------------------------------------------------------------------
 
 
@@ -243,7 +200,8 @@ def _mock_otel(monkeypatch):
     return create_gauge_calls, set_calls, force_flush_calls, shutdown_calls, exporter_calls
 
 
-def test_creates_gauge_for_metrics(monkeypatch):
+@pytest.mark.asyncio
+async def test_creates_gauge_for_metrics(tmp_path, monkeypatch):
     """A single testbench_evaluation_metric gauge is created."""
     create_gauge_calls, _, _, _, _ = _mock_otel(monkeypatch)
 
@@ -261,14 +219,17 @@ def test_creates_gauge_for_metrics(monkeypatch):
             )
         ]
     )
+    file_path = _write_experiment(tmp_path, experiment)
 
-    create_and_push_metrics(experiment, "test-workflow", "exec-123", 42)
+    publisher = MetricsPublisher(file_path, "test-workflow", "exec-123", 42)
+    await publisher.run()
 
     assert len(create_gauge_calls) == 1
     assert create_gauge_calls[0]["name"] == "testbench_evaluation_metric"
 
 
-def test_sets_per_step_gauge_values(monkeypatch):
+@pytest.mark.asyncio
+async def test_sets_per_step_gauge_values(tmp_path, monkeypatch):
     """Gauge.set is called for each evaluation with correct attributes."""
     _, set_calls, _, _, _ = _mock_otel(monkeypatch)
 
@@ -285,8 +246,10 @@ def test_sets_per_step_gauge_values(monkeypatch):
             )
         ]
     )
+    file_path = _write_experiment(tmp_path, experiment)
 
-    create_and_push_metrics(experiment, "test-workflow", "exec-123", 42)
+    publisher = MetricsPublisher(file_path, "test-workflow", "exec-123", 42)
+    await publisher.run()
 
     assert len(set_calls) == 2
 
@@ -305,12 +268,16 @@ def test_sets_per_step_gauge_values(monkeypatch):
     assert set_calls[1]["attributes"]["user_input_truncated"] == _get_user_input_truncated(long_question)
 
 
-def test_pushes_via_otlp(monkeypatch):
+@pytest.mark.asyncio
+async def test_pushes_via_otlp(tmp_path, monkeypatch):
     """OTLPMetricExporter is initialised with the correct endpoint."""
     _, _, force_flush_calls, shutdown_calls, exporter_calls = _mock_otel(monkeypatch)
 
     experiment = _make_evaluated_experiment()
-    create_and_push_metrics(experiment, "test-workflow", "exec-123", 42)
+    file_path = _write_experiment(tmp_path, experiment)
+
+    publisher = MetricsPublisher(file_path, "test-workflow", "exec-123", 42)
+    await publisher.run()
 
     assert len(exporter_calls) == 1
     assert exporter_calls[0]["endpoint"] == "http://localhost:4318/v1/metrics"
@@ -318,9 +285,18 @@ def test_pushes_via_otlp(monkeypatch):
     assert len(shutdown_calls) == 1
 
 
-def test_handles_push_error(monkeypatch):
+@pytest.mark.asyncio
+async def test_handles_push_error(tmp_path, monkeypatch):
     """RuntimeError raised when force_flush returns False."""
     shutdown_calls: list[bool] = []
+
+    class _OtelMockMeter:
+        def create_gauge(self, name, **kwargs):
+            return _OtelMockGauge()
+
+    class _OtelMockGauge:
+        def set(self, value, attributes=None):
+            pass
 
     def mock_get_meter(*args, **kwargs):
         return _OtelMockMeter()
@@ -345,15 +321,19 @@ def test_handles_push_error(monkeypatch):
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     experiment = _make_evaluated_experiment()
+    file_path = _write_experiment(tmp_path, experiment)
+
+    publisher = MetricsPublisher(file_path, "test-workflow", "exec-123", 42)
 
     with pytest.raises(RuntimeError, match="Failed to flush metrics"):
-        create_and_push_metrics(experiment, "test-workflow", "exec-123", 42)
+        await publisher.run()
 
     # shutdown still called in finally block
     assert len(shutdown_calls) == 1
 
 
-def test_skips_steps_without_evaluations(monkeypatch):
+@pytest.mark.asyncio
+async def test_skips_steps_without_evaluations(tmp_path, monkeypatch):
     """Steps with no evaluations are skipped."""
     _, set_calls, _, _, _ = _mock_otel(monkeypatch)
 
@@ -368,8 +348,10 @@ def test_skips_steps_without_evaluations(monkeypatch):
             )
         ]
     )
+    file_path = _write_experiment(tmp_path, experiment)
 
-    create_and_push_metrics(experiment, "test-workflow", "exec-123", 42)
+    publisher = MetricsPublisher(file_path, "test-workflow", "exec-123", 42)
+    await publisher.run()
 
     assert len(set_calls) == 1
     assert set_calls[0]["attributes"]["step_id"] == "stp_2"
@@ -380,53 +362,24 @@ def test_skips_steps_without_evaluations(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_publish_metrics_calls_create_and_push(tmp_path, monkeypatch):
-    """publish_metrics loads the file and calls create_and_push_metrics."""
+def test_publish_metrics_calls_publisher(tmp_path, monkeypatch):
+    """publish_metrics loads the file and runs the MetricsPublisher."""
+    _, set_calls, _, _, _ = _mock_otel(monkeypatch)
+
     experiment = _make_evaluated_experiment()
-    file_path = tmp_path / "evaluated.json"
-    file_path.write_text(experiment.model_dump_json(indent=2))
-
-    push_calls: list[dict] = []
-
-    def mock_create_push(exp, workflow_name, execution_id, execution_number):
-        push_calls.append(
-            {
-                "workflow_name": workflow_name,
-                "execution_id": execution_id,
-                "execution_number": execution_number,
-            }
-        )
-
-    monkeypatch.setattr("publish.create_and_push_metrics", mock_create_push)
+    file_path = _write_experiment(tmp_path, experiment)
 
     publish_metrics(str(file_path), "test-workflow", "exec-123", 42)
 
-    assert len(push_calls) == 1
-    assert push_calls[0]["workflow_name"] == "test-workflow"
-    assert push_calls[0]["execution_id"] == "exec-123"
-    assert push_calls[0]["execution_number"] == 42
+    assert len(set_calls) == 1
+    assert set_calls[0]["attributes"]["workflow_name"] == "test-workflow"
+    assert set_calls[0]["attributes"]["execution_id"] == "exec-123"
+    assert set_calls[0]["attributes"]["execution_number"] == 42
 
 
-def test_publish_metrics_skips_empty_experiment(tmp_path, monkeypatch):
-    """publish_metrics skips when experiment has no steps."""
-    experiment = _make_evaluated_experiment(scenarios=[_make_scenario("empty", [])])
-    file_path = tmp_path / "evaluated.json"
-    file_path.write_text(experiment.model_dump_json(indent=2))
-
-    push_calls: list[bool] = []
-
-    def mock_create_push(exp, workflow_name, execution_id, execution_number):
-        push_calls.append(True)
-
-    monkeypatch.setattr("publish.create_and_push_metrics", mock_create_push)
-
-    publish_metrics(str(file_path), "test-workflow", "exec-123", 42)
-
-    assert len(push_calls) == 0
-
-
-def test_publish_metrics_multiple_scenarios(tmp_path, monkeypatch):
-    """publish_metrics handles multiple scenarios with multiple steps."""
+@pytest.mark.asyncio
+async def test_publish_metrics_multiple_scenarios(tmp_path, monkeypatch):
+    """MetricsPublisher handles multiple scenarios with multiple steps."""
     _, set_calls, _, _, _ = _mock_otel(monkeypatch)
 
     experiment = _make_evaluated_experiment(
@@ -449,10 +402,10 @@ def test_publish_metrics_multiple_scenarios(tmp_path, monkeypatch):
             ),
         ]
     )
-    file_path = tmp_path / "evaluated.json"
-    file_path.write_text(experiment.model_dump_json(indent=2))
+    file_path = _write_experiment(tmp_path, experiment)
 
-    publish_metrics(str(file_path), "weather-test", "exec-456", 3)
+    publisher = MetricsPublisher(file_path, "weather-test", "exec-456", 3)
+    await publisher.run()
 
     assert len(set_calls) == 3
     assert set_calls[0]["attributes"]["name"] == "faithfulness"

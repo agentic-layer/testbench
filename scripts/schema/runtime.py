@@ -28,6 +28,7 @@ BeforeRunHook = Callable[[ExperimentIn], Awaitable[None]]
 BeforeScenarioHook = Callable[[ScenarioIn], Awaitable[None]]
 AfterScenarioHook = Callable[[ScenarioIn, ScenarioOut], Awaitable[None]]
 OnStepHook = Callable[[StepIn, ScenarioIn], Awaitable[StepOut]]
+AfterRunHook = Callable[[ExperimentOut], Awaitable[None]]
 
 
 # ---------------------------------------------------------------------------
@@ -62,19 +63,21 @@ class ExperimentRuntime(Generic[ExperimentIn, ExperimentOut]):
         self,
         on_step: OnStepHook[Step, Scenario, Step],
         input_path: str | Path,
-        output_path: str | Path,
+        output_path: str | Path | None = None,
         before_run: BeforeRunHook[Experiment] | None = None,
         before_scenario: BeforeScenarioHook[Scenario] | None = None,
         after_scenario: AfterScenarioHook[Scenario, Scenario] | None = None,
+        after_run: AfterRunHook[Experiment] | None = None,
         input_model: type[ExperimentIn] = Experiment,  # type: ignore[assignment]
         output_model: type[ExperimentOut] | None = None,
     ) -> None:
         self._on_step = on_step
         self._input_path = Path(input_path)
-        self._output_path = Path(output_path)
+        self._output_path = Path(output_path) if output_path is not None else None
         self._before_run = before_run
         self._before_scenario = before_scenario
         self._after_scenario = after_scenario
+        self._after_run = after_run
         self._input_model = input_model
         self._output_model: type[ExperimentOut] = output_model or input_model  # type: ignore[assignment]
         self._output_scenario_type = _resolve_scenario_type(self._output_model)  # type: ignore[arg-type]
@@ -114,7 +117,11 @@ class ExperimentRuntime(Generic[ExperimentIn, ExperimentOut]):
         experiment_data["scenarios"] = [s.model_dump() for s in executed_scenarios]
         result = self._output_model.model_validate(experiment_data)
 
-        self._output_path.parent.mkdir(parents=True, exist_ok=True)
-        self._output_path.write_text(result.model_dump_json(indent=2, serialize_as_any=True, exclude_none=True))
+        if self._after_run is not None:
+            await self._after_run(result)
+
+        if self._output_path is not None:
+            self._output_path.parent.mkdir(parents=True, exist_ok=True)
+            self._output_path.write_text(result.model_dump_json(indent=2, serialize_as_any=True, exclude_none=True))
 
         return result

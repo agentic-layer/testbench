@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "testbench"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from metrics.protocol import MetricResult
 from metrics.ragas.translation import dict_to_executed_step

@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "testbench"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from setup import custom_convert_csv, dataframe_to_experiment, get_converter, main
 

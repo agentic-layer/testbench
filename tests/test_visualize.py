@@ -11,15 +11,15 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "testbench"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from visualize import (
+    VisualizationData,
     _format_multi_turn_conversation,
     _get_score_class,
     _is_multi_turn_conversation,
     _is_valid_metric_value,
     calculate_metric_statistics,
-    load_evaluation_data,
     main,
     prepare_chart_data,
 )
@@ -93,6 +93,37 @@ def empty_evaluated_experiment_file(tmp_path):
     return test_file
 
 
+@pytest.fixture
+def sample_viz_data():
+    """Create sample VisualizationData for testing pure functions."""
+    return VisualizationData(
+        overall_scores={"faithfulness": 0.825, "answer_relevancy": 0.925, "context_recall": 0.825},
+        individual_results=[
+            {
+                "user_input": "What is the weather?",
+                "step_id": "step_1",
+                "trace_id": "a1b2c3d4e5f6",
+                "response": "It is sunny.",
+                "faithfulness": 0.85,
+                "answer_relevancy": 0.90,
+                "context_recall": 0.80,
+            },
+            {
+                "user_input": "What is the time?",
+                "step_id": "step_2",
+                "trace_id": "b2c3d4e5f6a7",
+                "response": "It is noon.",
+                "faithfulness": 0.80,
+                "answer_relevancy": 0.95,
+                "context_recall": 0.85,
+            },
+        ],
+        total_tokens={"input_tokens": 0, "output_tokens": 0},
+        total_cost=0.0,
+        metric_names=["answer_relevancy", "context_recall", "faithfulness"],
+    )
+
+
 # Test _is_valid_metric_value
 def test_is_valid_metric_value_with_float():
     """Test valid floats are recognized"""
@@ -119,155 +150,6 @@ def test_is_valid_metric_value_with_non_numeric():
     assert _is_valid_metric_value(None) is False
     assert _is_valid_metric_value([]) is False
     assert _is_valid_metric_value({}) is False
-
-
-# Test load_evaluation_data
-def test_loads_evaluation_data(evaluated_experiment_file):
-    """Test loading evaluation data from EvaluatedExperiment JSON"""
-    data = load_evaluation_data(str(evaluated_experiment_file))
-
-    assert len(data.individual_results) == 2
-    assert len(data.metric_names) == 3
-    assert "faithfulness" in data.metric_names
-    assert "answer_relevancy" in data.metric_names
-    assert "context_recall" in data.metric_names
-    # Token and cost tracking not available in new format
-    assert data.total_tokens["input_tokens"] == 0
-    assert data.total_tokens["output_tokens"] == 0
-    assert data.total_cost == 0.0
-    # Overall scores calculated from individual results
-    assert data.overall_scores["faithfulness"] == 0.825  # Mean of 0.85 and 0.80
-
-
-def test_loads_empty_evaluation_data(empty_evaluated_experiment_file):
-    """Test loading empty evaluation data"""
-    data = load_evaluation_data(str(empty_evaluated_experiment_file))
-
-    assert len(data.individual_results) == 0
-    assert len(data.metric_names) == 0
-    assert data.total_tokens["input_tokens"] == 0
-    assert data.total_cost == 0.0
-
-
-def test_file_not_found_error(tmp_path):
-    """Test error when file doesn't exist"""
-    with pytest.raises(FileNotFoundError):
-        load_evaluation_data(str(tmp_path / "nonexistent.json"))
-
-
-def test_handles_invalid_json(tmp_path):
-    """Test error when file is not valid JSON"""
-    from pydantic import ValidationError
-
-    invalid_file = tmp_path / "invalid.json"
-    with open(invalid_file, "w") as f:
-        f.write("{invalid json content")
-
-    with pytest.raises((json.JSONDecodeError, ValidationError)):
-        load_evaluation_data(str(invalid_file))
-
-
-def test_handles_missing_evaluations(tmp_path):
-    """Test handling of steps without evaluations"""
-    test_file = tmp_path / "missing_evaluations.json"
-
-    experiment_data = {
-        "scenarios": [
-            {
-                "name": "scenario_1",
-                "id": "scenario_1",
-                "trace_id": "trace_1",
-                "steps": [
-                    {
-                        "input": "test",
-                        "id": "step_1",
-                        # No evaluations
-                    }
-                ],
-            },
-            {
-                "name": "scenario_2",
-                "id": "scenario_2",
-                "trace_id": "trace_2",
-                "steps": [
-                    {
-                        "input": "test2",
-                        "id": "step_2",
-                        "evaluations": [{"metric": {"metric_name": "metric1"}, "result": {"score": 0.5}}],
-                    }
-                ],
-            },
-        ]
-    }
-
-    with open(test_file, "w") as f:
-        json.dump(experiment_data, f)
-
-    data = load_evaluation_data(str(test_file))
-    # Both steps are included, one has no metrics
-    assert len(data.individual_results) == 2
-
-
-def test_discovers_metric_names_correctly(tmp_path):
-    """Test metric name discovery from evaluations"""
-    test_file = tmp_path / "test.json"
-
-    experiment_data = {
-        "scenarios": [
-            {
-                "name": "scenario_1",
-                "id": "scenario_1",
-                "trace_id": "trace_1",
-                "steps": [
-                    {
-                        "input": "test",
-                        "id": "step_1",
-                        "evaluations": [
-                            {"metric": {"metric_name": "metric1"}, "result": {"score": 0.5}},
-                            {"metric": {"metric_name": "metric2"}, "result": {"score": 0.7}},
-                        ],
-                    }
-                ],
-            }
-        ]
-    }
-
-    with open(test_file, "w") as f:
-        json.dump(experiment_data, f)
-
-    data = load_evaluation_data(str(test_file))
-    assert set(data.metric_names) == {"metric1", "metric2"}
-
-
-def test_extracts_custom_values(tmp_path):
-    """Test that custom_values are added to individual results"""
-    test_file = tmp_path / "test.json"
-
-    experiment_data = {
-        "scenarios": [
-            {
-                "name": "scenario_1",
-                "id": "scenario_1",
-                "trace_id": "trace_1",
-                "steps": [
-                    {
-                        "input": "test",
-                        "id": "step_1",
-                        "custom_values": {"response": "custom response", "custom_field": "custom value"},
-                        "evaluations": [{"metric": {"metric_name": "metric1"}, "result": {"score": 0.5}}],
-                    }
-                ],
-            }
-        ]
-    }
-
-    with open(test_file, "w") as f:
-        json.dump(experiment_data, f)
-
-    data = load_evaluation_data(str(test_file))
-    result = data.individual_results[0]
-    assert result["response"] == "custom response"
-    assert result["custom_field"] == "custom value"
 
 
 # Test calculate_metric_statistics
@@ -322,10 +204,9 @@ def test_handles_single_value_statistics():
 
 
 # Test prepare_chart_data
-def test_prepares_chart_data_structure(evaluated_experiment_file):
+def test_prepares_chart_data_structure(sample_viz_data):
     """Test chart data structure is correct"""
-    viz_data = load_evaluation_data(str(evaluated_experiment_file))
-    chart_data = prepare_chart_data(viz_data)
+    chart_data = prepare_chart_data(sample_viz_data)
 
     assert "overall_scores" in chart_data
     assert "metric_distributions" in chart_data
@@ -334,30 +215,26 @@ def test_prepares_chart_data_structure(evaluated_experiment_file):
     assert "cost" in chart_data
 
 
-def test_chart_data_has_correct_overall_scores(evaluated_experiment_file):
+def test_chart_data_has_correct_overall_scores(sample_viz_data):
     """Test overall scores are correctly calculated"""
-    viz_data = load_evaluation_data(str(evaluated_experiment_file))
-    chart_data = prepare_chart_data(viz_data)
+    chart_data = prepare_chart_data(sample_viz_data)
 
-    # Overall scores are calculated as mean from individual results
     assert chart_data["overall_scores"]["faithfulness"] == 0.825  # Mean of 0.85 and 0.80
     assert chart_data["overall_scores"]["answer_relevancy"] == 0.925  # Mean of 0.90 and 0.95
 
 
-def test_chart_data_has_metric_distributions(evaluated_experiment_file):
+def test_chart_data_has_metric_distributions(sample_viz_data):
     """Test metric distributions are calculated"""
-    viz_data = load_evaluation_data(str(evaluated_experiment_file))
-    chart_data = prepare_chart_data(viz_data)
+    chart_data = prepare_chart_data(sample_viz_data)
 
     assert "faithfulness" in chart_data["metric_distributions"]
     assert "values" in chart_data["metric_distributions"]["faithfulness"]
     assert "stats" in chart_data["metric_distributions"]["faithfulness"]
 
 
-def test_chart_data_has_samples(evaluated_experiment_file):
+def test_chart_data_has_samples(sample_viz_data):
     """Test samples are prepared correctly"""
-    viz_data = load_evaluation_data(str(evaluated_experiment_file))
-    chart_data = prepare_chart_data(viz_data)
+    chart_data = prepare_chart_data(sample_viz_data)
 
     assert len(chart_data["samples"]) == 2
     assert chart_data["samples"][0]["index"] == 1
@@ -365,45 +242,42 @@ def test_chart_data_has_samples(evaluated_experiment_file):
     assert "metrics" in chart_data["samples"][0]
 
 
-def test_handles_empty_individual_results(empty_evaluated_experiment_file):
+def test_handles_empty_individual_results():
     """Test handling of empty individual results"""
-    viz_data = load_evaluation_data(str(empty_evaluated_experiment_file))
-    chart_data = prepare_chart_data(viz_data)
+    empty_viz_data = VisualizationData(
+        overall_scores={},
+        individual_results=[],
+        total_tokens={"input_tokens": 0, "output_tokens": 0},
+        total_cost=0.0,
+        metric_names=[],
+    )
+    chart_data = prepare_chart_data(empty_viz_data)
 
     assert chart_data["samples"] == []
     assert chart_data["metric_distributions"] == {}
     assert chart_data["overall_scores"] == {}
 
 
-def test_handles_missing_trace_ids(tmp_path):
+def test_handles_missing_trace_ids():
     """Test handling of missing trace_ids"""
-    test_file = tmp_path / "no_trace.json"
-
-    experiment_data = {
-        "scenarios": [
+    viz_data = VisualizationData(
+        overall_scores={"metric1": 0.5},
+        individual_results=[
             {
-                "name": "scenario_1",
-                "id": "scenario_1",
-                # No trace_id
-                "steps": [
-                    {
-                        "input": "test",
-                        "id": "step_1",
-                        "evaluations": [{"metric": {"metric_name": "metric1"}, "result": {"score": 0.5}}],
-                    }
-                ],
+                "user_input": "test",
+                "step_id": "step_1",
+                "trace_id": "",
+                "metric1": 0.5,
             }
-        ]
-    }
-
-    with open(test_file, "w") as f:
-        json.dump(experiment_data, f)
-
-    viz_data = load_evaluation_data(str(test_file))
+        ],
+        total_tokens={"input_tokens": 0, "output_tokens": 0},
+        total_cost=0.0,
+        metric_names=["metric1"],
+    )
     chart_data = prepare_chart_data(viz_data)
 
-    # visualize.py uses "unknown" for missing trace_ids
-    assert chart_data["samples"][0]["trace_id"] == "unknown"
+    # Empty string trace_id is falsy, so it gets replaced
+    assert chart_data["samples"][0]["trace_id"] == "missing-trace-0"
 
 
 # Test _get_score_class
@@ -428,7 +302,7 @@ def test_get_score_class_low():
     assert _get_score_class(0.49) == "low"
 
 
-# Test HTML generation
+# Test HTML generation (via main, which now uses ReportGenerator)
 def test_generates_valid_html_file(evaluated_experiment_file, tmp_path):
     """Test HTML file is generated with correct structure"""
     output_file = tmp_path / "report.html"
@@ -644,35 +518,26 @@ def test_format_multi_turn_conversation():
     assert "It is sunny." in html
 
 
-def test_prepare_chart_data_with_multi_turn(tmp_path):
+def test_prepare_chart_data_with_multi_turn():
     """Test chart data preparation with multi-turn conversations"""
-    test_file = tmp_path / "multi_turn.json"
-
-    experiment_data = {
-        "scenarios": [
+    viz_data = VisualizationData(
+        overall_scores={"metric1": 0.5},
+        individual_results=[
             {
-                "name": "scenario_1",
-                "id": "scenario_1",
+                "user_input": "Multi-turn conversation",
+                "step_id": "step_1",
                 "trace_id": "abc123",
-                "steps": [
-                    {
-                        "input": "Multi-turn conversation",
-                        "id": "step_1",
-                        "turns": [
-                            {"content": "Hello", "type": "human"},
-                            {"content": "Hi", "type": "agent"},
-                        ],
-                        "evaluations": [{"metric": {"metric_name": "metric1"}, "result": {"score": 0.5}}],
-                    }
+                "turns": [
+                    {"content": "Hello", "type": "human"},
+                    {"content": "Hi", "type": "agent"},
                 ],
+                "metric1": 0.5,
             }
-        ]
-    }
-
-    with open(test_file, "w") as f:
-        json.dump(experiment_data, f)
-
-    viz_data = load_evaluation_data(str(test_file))
+        ],
+        total_tokens={"input_tokens": 0, "output_tokens": 0},
+        total_cost=0.0,
+        metric_names=["metric1"],
+    )
     chart_data = prepare_chart_data(viz_data)
 
     assert len(chart_data["samples"]) == 1
@@ -775,35 +640,26 @@ def test_format_multi_turn_conversation_with_multiple_tool_calls():
     assert "get_time" in html
 
 
-def test_prepare_chart_data_with_tool_calls(tmp_path):
+def test_prepare_chart_data_with_tool_calls():
     """Test prepare_chart_data handles tool calls in turns"""
-    test_file = tmp_path / "tool_calls.json"
-
-    experiment_data = {
-        "scenarios": [
+    viz_data = VisualizationData(
+        overall_scores={"metric1": 0.85},
+        individual_results=[
             {
-                "name": "scenario_1",
-                "id": "scenario_1",
+                "user_input": "Test with tool calls",
+                "step_id": "step_1",
                 "trace_id": "trace1",
-                "steps": [
-                    {
-                        "input": "Test with tool calls",
-                        "id": "step_1",
-                        "turns": [
-                            {"content": "test", "type": "human"},
-                            {"content": "", "type": "agent", "tool_calls": [{"name": "tool1", "args": {}}]},
-                        ],
-                        "evaluations": [{"metric": {"metric_name": "metric1"}, "result": {"score": 0.85}}],
-                    }
+                "turns": [
+                    {"content": "test", "type": "human"},
+                    {"content": "", "type": "agent", "tool_calls": [{"name": "tool1", "args": {}}]},
                 ],
+                "metric1": 0.85,
             }
-        ]
-    }
-
-    with open(test_file, "w") as f:
-        json.dump(experiment_data, f)
-
-    viz_data = load_evaluation_data(str(test_file))
+        ],
+        total_tokens={"input_tokens": 0, "output_tokens": 0},
+        total_cost=0.0,
+        metric_names=["metric1"],
+    )
     chart_data = prepare_chart_data(viz_data)
 
     # Verify sample has is_multi_turn and formatted HTML

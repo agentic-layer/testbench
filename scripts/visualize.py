@@ -1,16 +1,35 @@
+"""Generate an HTML visualization dashboard from evaluation results.
+
+Reads an ``EvaluatedExperiment`` JSON file and produces a self-contained
+HTML report with charts, tables, and statistics.
+
+Usage::
+
+    python3 scripts/visualize.py weather-assistant-test exec-001 1
+"""
+
+from __future__ import annotations
+
 import argparse
+import asyncio
 import html
 import json
 import logging
 import math
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from logging import Logger
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from schema.models import EvaluatedExperiment
+from schema.models import (
+    EvaluatedExperiment,
+    EvaluatedScenario,
+    EvaluatedStep,
+    Scenario,
+)
+from schema.runtime import ExperimentRuntime
 
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)
@@ -45,111 +64,152 @@ def _is_valid_metric_value(value: Any) -> TypeGuard[int | float]:
     return True
 
 
-def load_evaluation_data(file_path: str) -> VisualizationData:
+@dataclass
+class _CollectorState:
+    """Mutable state accumulated during the runtime walk."""
+
+    individual_results: list[dict[str, Any]] = field(default_factory=list)
+    all_metric_scores: dict[str, list[float]] = field(default_factory=dict)
+    metric_names: set[str] = field(default_factory=set)
+    current_trace_id: str = "unknown"
+
+
+class ReportGenerator:
+    """Generate an HTML visualization report using :class:`ExperimentRuntime`.
+
+    Uses the runtime hook pattern to iterate scenarios/steps consistently
+    with the rest of the pipeline.
     """
-    Load evaluated_experiment.json and extract all necessary data.
 
-    Args:
-        file_path: Path to evaluated_experiment.json
+    def __init__(
+        self,
+        input_path: str,
+        output_html_path: str,
+        workflow_name: str,
+        execution_id: str,
+        execution_number: int,
+    ) -> None:
+        self._input_path = input_path
+        self._output_html_path = output_html_path
+        self._workflow_name = workflow_name
+        self._execution_id = execution_id
+        self._execution_number = execution_number
 
-    Returns:
-        VisualizationData container with all evaluation data
+        self._state = _CollectorState()
 
-    Raises:
-        FileNotFoundError: If file doesn't exist
-        json.JSONDecodeError: If file is not valid JSON
-    """
-    try:
-        # Read and parse EvaluatedExperiment JSON
-        with open(file_path, "r") as f:
-            experiment = EvaluatedExperiment.model_validate_json(f.read())
-    except FileNotFoundError:
-        logger.error(f"Input file not found: {file_path}")
-        logger.error("Have you run evaluate.py first to generate evaluated_experiment.json?")
-        raise
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in {file_path}: {e}")
-        raise
+    # ------------------------------------------------------------------
+    # Hooks
+    # ------------------------------------------------------------------
 
-    # Handle empty experiment
-    if not experiment.scenarios:
-        logger.warning("Empty experiment. Returning empty VisualizationData.")
-        return VisualizationData(
-            overall_scores={},
-            individual_results=[],
+    async def before_run(self, experiment: EvaluatedExperiment) -> None:  # type: ignore[override]
+        """Reset collection state."""
+        self._state = _CollectorState()
+
+    async def before_scenario(self, scenario: Scenario) -> None:
+        """Track the current scenario's trace_id."""
+        trace_id = "unknown"
+        if isinstance(scenario, EvaluatedScenario) and scenario.trace_id:
+            trace_id = scenario.trace_id
+        self._state.current_trace_id = trace_id
+
+    async def on_step(self, step: EvaluatedStep, scenario: Scenario) -> EvaluatedStep:  # type: ignore[override]
+        """Collect step data into flat result dicts."""
+        flat_result: dict[str, Any] = {
+            "user_input": step.input,
+            "step_id": step.id or "unknown",
+            "trace_id": self._state.current_trace_id,
+        }
+
+        # Add turns if present (for multi-turn conversation rendering)
+        if step.turns:
+            flat_result["turns"] = [
+                {
+                    "content": turn.content,
+                    "type": turn.type,
+                    "tool_calls": [{"name": tc.name, "args": tc.args} for tc in turn.tool_calls]
+                    if turn.tool_calls
+                    else [],
+                }
+                for turn in step.turns
+            ]
+
+        # Add reference if present
+        if step.reference:
+            if step.reference.response:
+                flat_result["reference"] = step.reference.response
+
+        # Add custom values if present
+        if step.custom_values:
+            flat_result.update(step.custom_values)
+
+        # Extract metric scores
+        if step.evaluations:
+            for evaluation in step.evaluations:
+                metric_name = evaluation.metric.metric_name
+                score = evaluation.result.score
+
+                if score is not None and _is_valid_metric_value(score):
+                    flat_result[metric_name] = score
+
+                    if metric_name not in self._state.all_metric_scores:
+                        self._state.all_metric_scores[metric_name] = []
+                    self._state.all_metric_scores[metric_name].append(score)
+                    self._state.metric_names.add(metric_name)
+
+        self._state.individual_results.append(flat_result)
+        return step
+
+    async def after_run(self, experiment: EvaluatedExperiment) -> None:  # type: ignore[override]
+        """Build VisualizationData and generate the HTML report."""
+        # Calculate overall scores as mean of each metric
+        overall_scores: dict[str, float] = {}
+        for metric_name, scores in self._state.all_metric_scores.items():
+            if scores:
+                overall_scores[metric_name] = sum(scores) / len(scores)
+
+        metric_names = sorted(self._state.metric_names)
+
+        viz_data = VisualizationData(
+            overall_scores=overall_scores,
+            individual_results=self._state.individual_results,
             total_tokens={"input_tokens": 0, "output_tokens": 0},
             total_cost=0.0,
-            metric_names=[],
+            metric_names=metric_names,
         )
 
-    # Flatten scenarios->steps into individual results
-    individual_results = []
-    all_metric_scores: dict[str, list[float]] = {}
+        logger.info("Found %d metrics: %s", len(viz_data.metric_names), ", ".join(viz_data.metric_names))
+        logger.info("Processing %d samples...", len(viz_data.individual_results))
 
-    for scenario in experiment.scenarios:
-        for step in scenario.steps:
-            # Build flat result dict for this step
-            flat_result: dict[str, Any] = {
-                "user_input": step.input,
-                "step_id": step.id or "unknown",
-                "trace_id": scenario.trace_id or "unknown",
-            }
+        generate_html_report(
+            viz_data,
+            self._output_html_path,
+            self._workflow_name,
+            self._execution_id,
+            self._execution_number,
+        )
 
-            # Add turns if present (for multi-turn conversation rendering)
-            if step.turns:
-                # Convert Turn objects to dicts for compatibility with rendering code
-                flat_result["turns"] = [
-                    {
-                        "content": turn.content,
-                        "type": turn.type,
-                        "tool_calls": [{"name": tc.name, "args": tc.args} for tc in turn.tool_calls]
-                        if turn.tool_calls
-                        else [],
-                    }
-                    for turn in step.turns
-                ]
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-            # Add reference if present
-            if step.reference:
-                if step.reference.response:
-                    flat_result["reference"] = step.reference.response
+    async def run(self) -> EvaluatedExperiment:
+        """Execute the visualization pipeline via ExperimentRuntime."""
+        runtime: ExperimentRuntime[EvaluatedExperiment, EvaluatedExperiment] = ExperimentRuntime(
+            on_step=self.on_step,  # type: ignore[arg-type]
+            input_path=self._input_path,
+            output_path=None,
+            input_model=EvaluatedExperiment,
+            output_model=EvaluatedExperiment,
+            before_run=self.before_run,  # type: ignore[arg-type]
+            before_scenario=self.before_scenario,
+            after_run=self.after_run,  # type: ignore[arg-type]
+        )
+        return await runtime.run()
 
-            # Add custom values if present
-            if step.custom_values:
-                flat_result.update(step.custom_values)
 
-            # Extract metric scores
-            if step.evaluations:
-                for evaluation in step.evaluations:
-                    metric_name = evaluation.metric.metric_name
-                    score = evaluation.result.score
-
-                    if score is not None and _is_valid_metric_value(score):
-                        flat_result[metric_name] = score
-
-                        # Collect for overall scores calculation
-                        if metric_name not in all_metric_scores:
-                            all_metric_scores[metric_name] = []
-                        all_metric_scores[metric_name].append(score)
-
-            individual_results.append(flat_result)
-
-    # Calculate overall_scores as mean of each metric across all steps
-    overall_scores = {}
-    for metric_name, scores in all_metric_scores.items():
-        if scores:
-            overall_scores[metric_name] = sum(scores) / len(scores)
-
-    # Get sorted list of metric names
-    metric_names = sorted(list(all_metric_scores.keys()))
-
-    return VisualizationData(
-        overall_scores=overall_scores,
-        individual_results=individual_results,
-        total_tokens={"input_tokens": 0, "output_tokens": 0},
-        total_cost=0.0,
-        metric_names=metric_names,
-    )
+# ---------------------------------------------------------------------------
+# Pure functions (unchanged from original)
+# ---------------------------------------------------------------------------
 
 
 def calculate_metric_statistics(individual_results: list[dict[str, Any]], metric_name: str) -> dict[str, float] | None:
@@ -231,7 +291,7 @@ def _format_multi_turn_conversation(conversation: list[dict[str, Any]]) -> str:
                 # Format args as JSON for readability
                 args_str = html.escape(json.dumps(tool_args, indent=2))
                 html_output += '<div class="tool-call">'
-                html_output += f'<span class="tool-call-name">→ Tool: {tool_name}</span>'
+                html_output += f'<span class="tool-call-name">\u2192 Tool: {tool_name}</span>'
                 html_output += f'<pre class="tool-call-args">{args_str}</pre>'
                 html_output += "</div>"
             html_output += "</div>"
@@ -785,7 +845,7 @@ def generate_metric_distributions_html(chart_data: dict[str, Any]) -> str:
     if not chart_data["metric_distributions"]:
         return ""
 
-    html = """
+    html_str = """
 <section class="distributions-section">
     <h2>Metric Distributions</h2>
     <div class="distributions-grid">
@@ -793,7 +853,7 @@ def generate_metric_distributions_html(chart_data: dict[str, Any]) -> str:
 
     for metric_name, dist_data in chart_data["metric_distributions"].items():
         stats = dist_data["stats"]
-        html += f"""
+        html_str += f"""
         <div class="distribution-card">
             <h3>{metric_name}</h3>
             <canvas id="chart-{metric_name}"></canvas>
@@ -806,11 +866,11 @@ def generate_metric_distributions_html(chart_data: dict[str, Any]) -> str:
         </div>
 """
 
-    html += """
+    html_str += """
     </div>
 </section>
 """
-    return html
+    return html_str
 
 
 def _get_score_class(score: float) -> str:
@@ -837,7 +897,7 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
     has_responses = any(sample.get("response") for sample in chart_data["samples"])
 
     # Generate table header
-    html = """
+    html_str = """
 <section class="table-section">
     <h2>Detailed Results</h2>
     <div class="table-controls">
@@ -853,13 +913,13 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
 
     # Add Response column header only if there's response data
     if has_responses:
-        html += "                    <th>Response</th>\n"
+        html_str += "                    <th>Response</th>\n"
 
     # Add metric columns
     for metric_name in metric_names:
-        html += f"                    <th>{metric_name}</th>\n"
+        html_str += f"                    <th>{metric_name}</th>\n"
 
-    html += """                    <th>Trace ID</th>
+    html_str += """                    <th>Trace ID</th>
                 </tr>
             </thead>
             <tbody>
@@ -896,7 +956,7 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
         else:
             tooltip_text = str(sample["user_input"])
 
-        html += f"""                <tr>
+        html_str += f"""                <tr>
                     <td>{sample["index"]}</td>
                     <td class="user-input-cell" title="{tooltip_text}">{user_input_display}</td>
 """
@@ -904,27 +964,29 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
         # Add response cell only if we have response data
         if has_responses:
             response = sample.get("response", "")
-            html += f'                    <td class="response-cell" title="{response}">{response}</td>\n'
+            html_str += f'                    <td class="response-cell" title="{response}">{response}</td>\n'
 
         # Add metric values
         for metric_name in metric_names:
             score = sample["metrics"].get(metric_name)
             if _is_valid_metric_value(score):
                 score_class = _get_score_class(float(score))
-                html += f'                    <td><span class="metric-score {score_class}">{score:.3f}</span></td>\n'
+                html_str += (
+                    f'                    <td><span class="metric-score {score_class}">{score:.3f}</span></td>\n'
+                )
             else:
-                html += "                    <td>N/A</td>\n"
+                html_str += "                    <td>N/A</td>\n"
 
-        html += f"""                    <td class="trace-id">{sample["trace_id"]}</td>
+        html_str += f"""                    <td class="trace-id">{sample["trace_id"]}</td>
                 </tr>
 """
 
-    html += """            </tbody>
+    html_str += """            </tbody>
         </table>
     </div>
 </section>
 """
-    return html
+    return html_str
 
 
 def generate_javascript(chart_data: dict[str, Any]) -> str:
@@ -1101,7 +1163,7 @@ def generate_html_report(
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     # Build complete HTML
-    html = f"""<!DOCTYPE html>
+    html_str = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1142,7 +1204,7 @@ def generate_html_report(
 
     # Write to file
     with open(output_file, "w") as f:
-        f.write(html)
+        f.write(html_str)
 
     logger.info(f"Report saved to: {output_file}")
 
@@ -1164,21 +1226,24 @@ def main(
         execution_id: Testkube execution ID for this workflow run
         execution_number: Testkube execution number for this workflow run
     """
-    logger.info(f"Loading evaluation data from {input_file}...")
-    viz_data = load_evaluation_data(input_file)
+    logger.info("Loading evaluation data from %s...", input_file)
+    logger.info("Workflow: %s, Execution: %s", workflow_name, execution_id)
 
-    logger.info(f"Found {len(viz_data.metric_names)} metrics: {', '.join(viz_data.metric_names)}")
-    logger.info(f"Processing {len(viz_data.individual_results)} samples...")
-    logger.info(f"Workflow: {workflow_name}, Execution: {execution_id}")
+    generator = ReportGenerator(
+        input_path=input_file,
+        output_html_path=output_file,
+        workflow_name=workflow_name,
+        execution_id=execution_id,
+        execution_number=execution_number,
+    )
+    asyncio.run(generator.run())
 
-    generate_html_report(viz_data, output_file, workflow_name, execution_id, execution_number)
-
-    logger.info(f"HTML report generated successfully: {output_file}")
+    logger.info("HTML report generated successfully: %s", output_file)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate HTML dashboard from RAGAS evaluation results",
+        description="Generate HTML dashboard from testbench evaluation results",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

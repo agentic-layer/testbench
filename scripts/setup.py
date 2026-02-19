@@ -6,7 +6,7 @@ that subsequent phases can consume.
 
 Usage::
 
-    python3 testbench/setup.py <bucket> <key>
+    python3 scripts/setup.py <bucket> <key>
 """
 
 import argparse

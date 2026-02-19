@@ -63,7 +63,7 @@ line-length = 120
 extend-select = ["Q", "N", "I001", "PT", "TID251", "DTZ"]
 
 [tool.mypy]
-mypy_path = "testbench"
+mypy_path = "scripts"
 explicit_package_bases = true
 
 [tool.bandit]
