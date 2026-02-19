@@ -33,6 +33,8 @@ def evaluated_experiment_file(tmp_path):
 
     # Create EvaluatedExperiment structure
     experiment_data = {
+        "llm_as_a_judge_model": "gemini-2.5-flash-lite",
+        "default_threshold": 0.8,
         "scenarios": [
             {
                 "name": "scenario_1",
@@ -42,11 +44,28 @@ def evaluated_experiment_file(tmp_path):
                     {
                         "input": "What is the weather?",
                         "id": "step_1",
-                        "reference": {"response": "Expected answer"},
+                        "reference": {
+                            "response": "Expected answer",
+                            "tool_calls": [{"name": "get_weather", "args": {"city": "NYC"}}],
+                            "topics": ["weather", "forecasting"],
+                        },
                         "evaluations": [
-                            {"metric": {"metric_name": "faithfulness"}, "result": {"score": 0.85}},
-                            {"metric": {"metric_name": "answer_relevancy"}, "result": {"score": 0.90}},
-                            {"metric": {"metric_name": "context_recall"}, "result": {"score": 0.80}},
+                            {
+                                "metric": {"metric_name": "faithfulness", "threshold": 0.8},
+                                "result": {"score": 0.85, "result": "pass"},
+                            },
+                            {
+                                "metric": {"metric_name": "answer_relevancy", "threshold": 0.9},
+                                "result": {
+                                    "score": 0.90,
+                                    "result": "pass",
+                                    "details": {"reason": "Relevant answer"},
+                                },
+                            },
+                            {
+                                "metric": {"metric_name": "context_recall", "threshold": 0.85},
+                                "result": {"score": 0.80, "result": "fail"},
+                            },
                         ],
                         "custom_values": {"response": "It is sunny."},
                     }
@@ -62,15 +81,24 @@ def evaluated_experiment_file(tmp_path):
                         "id": "step_2",
                         "reference": {"response": "Expected answer"},
                         "evaluations": [
-                            {"metric": {"metric_name": "faithfulness"}, "result": {"score": 0.80}},
-                            {"metric": {"metric_name": "answer_relevancy"}, "result": {"score": 0.95}},
-                            {"metric": {"metric_name": "context_recall"}, "result": {"score": 0.85}},
+                            {
+                                "metric": {"metric_name": "faithfulness", "threshold": 0.8},
+                                "result": {"score": 0.80, "result": "pass"},
+                            },
+                            {
+                                "metric": {"metric_name": "answer_relevancy", "threshold": 0.9},
+                                "result": {"score": 0.95, "result": "pass"},
+                            },
+                            {
+                                "metric": {"metric_name": "context_recall", "threshold": 0.85},
+                                "result": {"score": 0.85, "result": "pass"},
+                            },
                         ],
                         "custom_values": {"response": "It is noon."},
                     }
                 ],
             },
-        ]
+        ],
     }
 
     with open(test_file, "w") as f:
@@ -511,7 +539,7 @@ def test_format_multi_turn_conversation():
 
     assert '<div class="conversation">' in html
     assert '<div class="message human">' in html
-    assert '<div class="message ai">' in html
+    assert '<div class="message agent">' in html
     assert "HUMAN:" in html
     assert "AGENT:" in html
     assert "What is the weather?" in html
@@ -604,7 +632,7 @@ def test_format_multi_turn_conversation_with_tool_calls():
     assert '<div class="conversation">' in html
     assert '<div class="message human">' in html
     assert '<div class="message tool">' in html
-    assert '<div class="message ai">' in html
+    assert '<div class="message agent">' in html
 
     # Verify tool call display
     assert "tool-calls-container" in html
@@ -667,3 +695,104 @@ def test_prepare_chart_data_with_tool_calls():
     sample = chart_data["samples"][0]
     assert sample["is_multi_turn"] is True
     assert "tool-call" in sample["user_input_formatted"]
+
+
+# Test _get_score_class with threshold parameter
+def test_get_score_class_with_threshold_high():
+    """Test high score with custom threshold"""
+    assert _get_score_class(0.9, threshold=0.9) == "high"
+    assert _get_score_class(1.0, threshold=0.8) == "high"
+
+
+def test_get_score_class_with_threshold_medium():
+    """Test medium score with custom threshold"""
+    # threshold=0.8 → medium boundary = 0.8 * 0.75 ≈ 0.6
+    assert _get_score_class(0.7, threshold=0.8) == "medium"
+    assert _get_score_class(0.65, threshold=0.8) == "medium"
+
+
+def test_get_score_class_with_threshold_low():
+    """Test low score with custom threshold"""
+    # threshold=0.8 → medium boundary = 0.6, so below that is low
+    assert _get_score_class(0.5, threshold=0.8) == "low"
+    assert _get_score_class(0.0, threshold=0.8) == "low"
+
+
+# Test pass rate card
+def test_html_contains_pass_rate_card(evaluated_experiment_file, tmp_path):
+    """Test pass rate card is present when pass/fail data exists"""
+    output_file = tmp_path / "report.html"
+
+    main(str(evaluated_experiment_file), str(output_file), "test-workflow", "test-exec-001", 1)
+
+    html_content = output_file.read_text()
+    assert "Pass Rate" in html_content
+    assert "passed" in html_content
+    assert "failed" in html_content
+
+
+# Test scenario group headers
+def test_html_contains_scenario_headers(evaluated_experiment_file, tmp_path):
+    """Test scenario group headers appear in the results table"""
+    output_file = tmp_path / "report.html"
+
+    main(str(evaluated_experiment_file), str(output_file), "test-workflow", "test-exec-001", 1)
+
+    html_content = output_file.read_text()
+    assert "scenario-header" in html_content
+    assert "scenario_1" in html_content
+    assert "scenario_2" in html_content
+
+
+# Test reference details (tool_calls and topics)
+def test_html_contains_reference_details(evaluated_experiment_file, tmp_path):
+    """Test reference tool_calls and topics appear in the report"""
+    output_file = tmp_path / "report.html"
+
+    main(str(evaluated_experiment_file), str(output_file), "test-workflow", "test-exec-001", 1)
+
+    html_content = output_file.read_text()
+    assert "reference-details" in html_content
+    assert "Expected tool calls" in html_content
+    assert "get_weather" in html_content
+    assert "Expected topics" in html_content
+    assert "weather" in html_content
+    assert "forecasting" in html_content
+
+
+# Test llm_as_a_judge_model in header
+def test_html_contains_llm_model_in_header(evaluated_experiment_file, tmp_path):
+    """Test llm_as_a_judge_model appears in the report header"""
+    output_file = tmp_path / "report.html"
+
+    main(str(evaluated_experiment_file), str(output_file), "test-workflow", "test-exec-001", 1)
+
+    html_content = output_file.read_text()
+    assert "LLM-as-a-Judge Model" in html_content
+    assert "gemini-2.5-flash-lite" in html_content
+
+
+# Test pass/fail badges in metric cells
+def test_html_contains_pass_fail_badges(evaluated_experiment_file, tmp_path):
+    """Test pass/fail badges appear in metric cells"""
+    output_file = tmp_path / "report.html"
+
+    main(str(evaluated_experiment_file), str(output_file), "test-workflow", "test-exec-001", 1)
+
+    html_content = output_file.read_text()
+    assert 'class="badge pass"' in html_content
+    assert 'class="badge fail"' in html_content
+    assert "PASS" in html_content
+    assert "FAIL" in html_content
+
+
+# Test eval details collapsible
+def test_html_contains_eval_details(evaluated_experiment_file, tmp_path):
+    """Test evaluation details appear as collapsible sections"""
+    output_file = tmp_path / "report.html"
+
+    main(str(evaluated_experiment_file), str(output_file), "test-workflow", "test-exec-001", 1)
+
+    html_content = output_file.read_text()
+    assert "eval-details" in html_content
+    assert "Relevant answer" in html_content
