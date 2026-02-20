@@ -40,14 +40,14 @@ def _make_evaluated_experiment(
                     _make_step(
                         "What is the weather?",
                         step_id="stp_1",
-                        evaluations=[("faithfulness", 0.85, "pass")],
+                        evaluations=[("faithfulness", 0.85, "pass", 0.8)],
                         trace_id="a1b2c3d4e5f6789012345678901234aa",
                     )
                 ],
                 trace_id="a1b2c3d4e5f6789012345678901234aa",
             )
         ]
-    return EvaluatedExperiment(scenarios=[EvaluatedScenario(**s) for s in scenarios])
+    return EvaluatedExperiment(id="exp_test123", scenarios=[EvaluatedScenario(**s) for s in scenarios])
 
 
 def _make_scenario(
@@ -67,18 +67,20 @@ def _make_scenario(
 def _make_step(
     input_text: str = "What is the weather?",
     step_id: str = "stp_1",
-    evaluations: list[tuple[str, float, str]] | None = None,
+    evaluations: list[tuple[str, float, str] | tuple[str, float, str, float]] | None = None,
     trace_id: str | None = None,
 ) -> dict:
     step: dict = {"input": input_text, "id": step_id}
     if evaluations is not None:
-        step["evaluations"] = [
-            {
-                "metric": {"metric_name": name},
-                "result": {"score": score, "result": result},
-            }
-            for name, score, result in evaluations
-        ]
+        eval_list = []
+        for entry in evaluations:
+            name, score, result = entry[0], entry[1], entry[2]
+            threshold = entry[3] if len(entry) > 3 else None  # type: ignore[arg-type]
+            metric: dict = {"metric_name": name}
+            if threshold is not None:
+                metric["threshold"] = threshold
+            eval_list.append({"metric": metric, "result": {"score": score, "result": result}})
+        step["evaluations"] = eval_list
     return step
 
 
@@ -213,7 +215,7 @@ async def test_creates_gauge_for_metrics(tmp_path, monkeypatch):
                     _make_step(
                         "Q1",
                         step_id="stp_1",
-                        evaluations=[("faithfulness", 0.85, "pass"), ("answer_relevancy", 0.90, "pass")],
+                        evaluations=[("faithfulness", 0.85, "pass", 0.8), ("answer_relevancy", 0.90, "pass", 0.8)],
                     )
                 ],
             )
@@ -239,8 +241,8 @@ async def test_sets_per_step_gauge_values(tmp_path, monkeypatch):
             _make_scenario(
                 "s1",
                 [
-                    _make_step("Question 1", step_id="stp_1", evaluations=[("faithfulness", 0.85, "pass")]),
-                    _make_step(long_question, step_id="stp_2", evaluations=[("faithfulness", 0.80, "pass")]),
+                    _make_step("Question 1", step_id="stp_1", evaluations=[("faithfulness", 0.85, "pass", 0.8)]),
+                    _make_step(long_question, step_id="stp_2", evaluations=[("faithfulness", 0.80, "pass", 0.8)]),
                 ],
                 trace_id="d4e5f6a7b8c9012345678901234567dd",
             )
@@ -258,13 +260,20 @@ async def test_sets_per_step_gauge_values(tmp_path, monkeypatch):
     assert set_calls[0]["attributes"]["workflow_name"] == "test-workflow"
     assert set_calls[0]["attributes"]["execution_id"] == "exec-123"
     assert set_calls[0]["attributes"]["execution_number"] == 42
+    assert set_calls[0]["attributes"]["experiment_id"] == "exp_test123"
+    assert set_calls[0]["attributes"]["scenario_id"] == "scn_1"
+    assert set_calls[0]["attributes"]["scenario_name"] == "s1"
+    assert set_calls[0]["attributes"]["step_index"] == "0"
     assert set_calls[0]["attributes"]["trace_id"] == "d4e5f6a7b8c9012345678901234567dd"
     assert set_calls[0]["attributes"]["step_id"] == "stp_1"
+    assert set_calls[0]["attributes"]["threshold"] == "0.8"
+    assert set_calls[0]["attributes"]["result"] == "pass"
     assert set_calls[0]["attributes"]["user_input_truncated"] == "Question 1"
 
     # Second step: long question (truncated)
     assert set_calls[1]["value"] == 0.80
     assert set_calls[1]["attributes"]["step_id"] == "stp_2"
+    assert set_calls[1]["attributes"]["step_index"] == "1"
     assert set_calls[1]["attributes"]["user_input_truncated"] == _get_user_input_truncated(long_question)
 
 
@@ -343,7 +352,7 @@ async def test_skips_steps_without_evaluations(tmp_path, monkeypatch):
                 "s1",
                 [
                     _make_step("Q1", step_id="stp_1", evaluations=None),
-                    _make_step("Q2", step_id="stp_2", evaluations=[("faithfulness", 0.9, "pass")]),
+                    _make_step("Q2", step_id="stp_2", evaluations=[("faithfulness", 0.9, "pass", 0.8)]),
                 ],
             )
         ]
@@ -387,15 +396,15 @@ async def test_publish_metrics_multiple_scenarios(tmp_path, monkeypatch):
             _make_scenario(
                 "s1",
                 [
-                    _make_step("Q1", step_id="stp_1", evaluations=[("faithfulness", 0.85, "pass")]),
-                    _make_step("Q2", step_id="stp_2", evaluations=[("answer_relevancy", 0.90, "pass")]),
+                    _make_step("Q1", step_id="stp_1", evaluations=[("faithfulness", 0.85, "pass", 0.8)]),
+                    _make_step("Q2", step_id="stp_2", evaluations=[("answer_relevancy", 0.90, "pass", 0.8)]),
                 ],
                 trace_id="trace_a",
             ),
             _make_scenario(
                 "s2",
                 [
-                    _make_step("Q3", step_id="stp_3", evaluations=[("faithfulness", 0.70, "fail")]),
+                    _make_step("Q3", step_id="stp_3", evaluations=[("faithfulness", 0.70, "fail", 0.8)]),
                 ],
                 trace_id="trace_b",
                 scenario_id="scn_2",
@@ -409,6 +418,90 @@ async def test_publish_metrics_multiple_scenarios(tmp_path, monkeypatch):
 
     assert len(set_calls) == 3
     assert set_calls[0]["attributes"]["name"] == "faithfulness"
+    assert set_calls[0]["attributes"]["scenario_name"] == "s1"
+    assert set_calls[0]["attributes"]["scenario_id"] == "scn_1"
+    assert set_calls[0]["attributes"]["step_index"] == "0"
     assert set_calls[1]["attributes"]["name"] == "answer_relevancy"
+    assert set_calls[1]["attributes"]["scenario_name"] == "s1"
+    assert set_calls[1]["attributes"]["step_index"] == "1"
     assert set_calls[2]["attributes"]["name"] == "faithfulness"
     assert set_calls[2]["attributes"]["trace_id"] == "trace_b"
+    assert set_calls[2]["attributes"]["scenario_name"] == "s2"
+    assert set_calls[2]["attributes"]["scenario_id"] == "scn_2"
+    assert set_calls[2]["attributes"]["step_index"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_step_index_resets_per_scenario(tmp_path, monkeypatch):
+    """step_index resets to 0 at the start of each scenario."""
+    _, set_calls, _, _, _ = _mock_otel(monkeypatch)
+
+    experiment = _make_evaluated_experiment(
+        scenarios=[
+            _make_scenario(
+                "scenario-a",
+                [
+                    _make_step("Q1", step_id="stp_1", evaluations=[("faithfulness", 0.9, "pass", 0.8)]),
+                    _make_step("Q2", step_id="stp_2", evaluations=[("faithfulness", 0.8, "pass", 0.8)]),
+                ],
+                scenario_id="scn_a",
+            ),
+            _make_scenario(
+                "scenario-b",
+                [
+                    _make_step("Q3", step_id="stp_3", evaluations=[("faithfulness", 0.7, "fail", 0.8)]),
+                ],
+                scenario_id="scn_b",
+            ),
+        ]
+    )
+    file_path = _write_experiment(tmp_path, experiment)
+
+    publisher = MetricsPublisher(file_path, "wf", "exec-1", 1)
+    await publisher.run()
+
+    assert len(set_calls) == 3
+    # Scenario A: step_index 0, 1
+    assert set_calls[0]["attributes"]["step_index"] == "0"
+    assert set_calls[0]["attributes"]["scenario_name"] == "scenario-a"
+    assert set_calls[1]["attributes"]["step_index"] == "1"
+    assert set_calls[1]["attributes"]["scenario_name"] == "scenario-a"
+    # Scenario B: step_index resets to 0
+    assert set_calls[2]["attributes"]["step_index"] == "0"
+    assert set_calls[2]["attributes"]["scenario_name"] == "scenario-b"
+
+
+@pytest.mark.asyncio
+async def test_threshold_and_result_attributes(tmp_path, monkeypatch):
+    """Threshold is stringified and result is passed through."""
+    _, set_calls, _, _, _ = _mock_otel(monkeypatch)
+
+    experiment = _make_evaluated_experiment(
+        scenarios=[
+            _make_scenario(
+                "s1",
+                [
+                    _make_step(
+                        "Q1",
+                        step_id="stp_1",
+                        evaluations=[
+                            ("faithfulness", 0.5, "fail", 0.8),
+                            ("relevancy", 0.95, "pass"),
+                        ],
+                    ),
+                ],
+            )
+        ]
+    )
+    file_path = _write_experiment(tmp_path, experiment)
+
+    publisher = MetricsPublisher(file_path, "wf", "exec-1", 1)
+    await publisher.run()
+
+    assert len(set_calls) == 2
+    # With threshold
+    assert set_calls[0]["attributes"]["threshold"] == "0.8"
+    assert set_calls[0]["attributes"]["result"] == "fail"
+    # Without threshold
+    assert set_calls[1]["attributes"]["threshold"] == ""
+    assert set_calls[1]["attributes"]["result"] == "pass"

@@ -301,7 +301,6 @@ All scripts follow same pattern: parse arguments → read input file(s) → proc
 - **`adapter.py`**: Abstract `FrameworkAdapter` base class
 - **`registry.py`**: `GenericMetricsRegistry` (lazy-loads adapters)
 - **`ragas/adapter.py`**: RAGAS-specific `RagasFrameworkAdapter`
-- **`ragas/translation.py`**: `dict_to_executed_step` helper for RAGAS data translation
 
 ### Test Organization
 

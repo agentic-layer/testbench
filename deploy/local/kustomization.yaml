@@ -4,7 +4,6 @@ resources:
   - lgtm/
   - otel-config.yaml
   - weather-agent.yaml
-  - dataset.yaml
-  - multi-turn-metrics-configmap.yaml
-  - multi-turn-workflow.yaml
-  - multi-turn-workflow-trigger.yaml
+  - experiment.yaml
+  - example-workflow.yaml
+  - example-workflow-trigger.yaml

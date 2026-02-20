@@ -1,7 +1,7 @@
 """
 Unit tests for the generic metrics package.
 
-Tests adapter, registry, translation, and callable components.
+Tests adapter, registry, and callable components.
 """
 
 import sys
@@ -13,107 +13,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from metrics.protocol import MetricResult
-from metrics.ragas.translation import dict_to_executed_step
 from metrics.registry import GenericMetricsRegistry
 from schema.models import ExecutedStep, Reference, Turn
-
-# ── dict_to_executed_step tests ──────────────────────────────────────────
-
-
-class TestDictToExecutedStep:
-    def test_single_turn_basic(self):
-        """Single-turn row maps user_input to input, response to custom_values."""
-        row = {
-            "user_input": "What is the weather?",
-            "response": "It is sunny.",
-            "retrieved_contexts": ["Context about weather"],
-            "reference": "Expected answer",
-        }
-        step = dict_to_executed_step(row)
-
-        assert isinstance(step, ExecutedStep)
-        assert step.input == "What is the weather?"
-        assert step.turns is None
-        assert step.custom_values is not None
-        assert step.custom_values["response"] == "It is sunny."
-        assert step.custom_values["retrieved_contexts"] == ["Context about weather"]
-        assert step.reference is not None
-        assert step.reference.response == "Expected answer"
-
-    def test_multi_turn(self):
-        """Multi-turn row: user_input list -> turns, first human msg -> input."""
-        row = {
-            "user_input": [
-                {"content": "Hello", "type": "human"},
-                {"content": "Hi there!", "type": "ai"},
-                {"content": "What's the weather?", "type": "human"},
-            ],
-            "response": "It is sunny.",
-        }
-        step = dict_to_executed_step(row)
-
-        assert step.input == "Hello"
-        assert step.turns is not None
-        assert len(step.turns) == 3
-        assert step.turns[0].type == "human"
-        assert step.turns[1].type == "agent"  # 'ai' normalized to 'agent'
-        assert step.turns[2].type == "human"
-
-    def test_with_reference_tool_calls(self):
-        """Reference tool calls are mapped to Reference.tool_calls."""
-        row = {
-            "user_input": "Call the tool",
-            "reference_tool_calls": [
-                {"name": "get_weather", "args": {"city": "Berlin"}},
-                {"name": "get_time", "arguments": {"tz": "CET"}},
-            ],
-        }
-        step = dict_to_executed_step(row)
-
-        assert step.reference is not None
-        assert step.reference.tool_calls is not None
-        assert len(step.reference.tool_calls) == 2
-        assert step.reference.tool_calls[0].name == "get_weather"
-        assert step.reference.tool_calls[0].args == {"city": "Berlin"}
-        # 'args' key should also work (fallback)
-        assert step.reference.tool_calls[1].name == "get_time"
-        assert step.reference.tool_calls[1].args == {"tz": "CET"}
-
-    def test_minimal_input(self):
-        """Minimal row with just user_input."""
-        row = {"user_input": "Hello"}
-        step = dict_to_executed_step(row)
-
-        assert step.input == "Hello"
-        assert step.reference is None
-        assert step.turns is None
-
-    def test_sample_hash_as_id(self):
-        """sample_hash is used as step id."""
-        row = {"user_input": "Q", "sample_hash": "abc123"}
-        step = dict_to_executed_step(row)
-        assert step.id == "abc123"
-
-    def test_explicit_id(self):
-        """Explicit 'id' field takes precedence."""
-        row = {"user_input": "Q", "id": "explicit-id", "sample_hash": "hash"}
-        step = dict_to_executed_step(row)
-        assert step.id == "explicit-id"
-
-    def test_turns_from_row(self):
-        """Turns field in row is parsed when user_input is string."""
-        row = {
-            "user_input": "Hello",
-            "turns": [
-                {"content": "Hello", "type": "human"},
-                {"content": "Hi!", "type": "ai"},
-            ],
-        }
-        step = dict_to_executed_step(row)
-        assert step.turns is not None
-        assert len(step.turns) == 2
-        assert step.turns[1].type == "agent"
-
 
 # ── RagasFrameworkAdapter tests ──────────────────────────────────────────
 

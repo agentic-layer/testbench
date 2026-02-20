@@ -74,6 +74,10 @@ class MetricsPublisher:
         self._provider: MeterProvider | None = None
         self._gauge: Any = None
         self._current_trace_id: str = "missing-trace-id"
+        self._current_experiment_id: str = ""
+        self._current_scenario_id: str = ""
+        self._current_scenario_name: str = ""
+        self._current_step_index: int = 0
 
     # ------------------------------------------------------------------
     # Hooks
@@ -98,14 +102,18 @@ class MetricsPublisher:
             unit="",
         )
 
+        self._current_experiment_id = experiment.id or ""
         logger.info("Pushing metrics to OTLP endpoint at %s...", otlp_endpoint)
 
     async def before_scenario(self, scenario: Scenario) -> None:
-        """Track the current scenario's trace_id."""
+        """Track the current scenario's trace_id and metadata."""
         trace_id = "missing-trace-id"
         if isinstance(scenario, EvaluatedScenario) and scenario.trace_id:
             trace_id = scenario.trace_id
         self._current_trace_id = trace_id
+        self._current_scenario_id = scenario.id if isinstance(scenario, EvaluatedScenario) and scenario.id else ""
+        self._current_scenario_name = scenario.name
+        self._current_step_index = 0
 
     async def on_step(self, step: EvaluatedStep, scenario: Scenario) -> EvaluatedStep:  # type: ignore[override]
         """Record gauge values for each evaluation in the step."""
@@ -126,13 +134,20 @@ class MetricsPublisher:
                     "workflow_name": self._workflow_name,
                     "execution_id": self._execution_id,
                     "execution_number": self._execution_number,
-                    "trace_id": self._current_trace_id,
+                    "experiment_id": self._current_experiment_id,
+                    "scenario_id": self._current_scenario_id,
+                    "scenario_name": self._current_scenario_name,
                     "step_id": step_id,
+                    "step_index": str(self._current_step_index),
+                    "trace_id": self._current_trace_id,
+                    "threshold": str(evaluation.metric.threshold) if evaluation.metric.threshold is not None else "",
+                    "result": evaluation.result.result or "",
                     "user_input_truncated": user_input_truncated,
                 }
                 self._gauge.set(score, attributes)  # type: ignore[arg-type]
                 logger.info("testbench_evaluation_metric%s = %s", attributes, score)
 
+        self._current_step_index += 1
         return step
 
     async def after_run(self, experiment: EvaluatedExperiment) -> None:  # type: ignore[override]

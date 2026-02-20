@@ -1,7 +1,7 @@
 apiVersion: testworkflows.testkube.io/v1
 kind: TestWorkflowTemplate
 metadata:
-  name: ragas-evaluate-template
+  name: evaluate-template
   namespace: {{ include "testbench.namespace" . }}
   labels:
     {{- include "testbench.labels" . | nindent 4 }}
@@ -9,9 +9,6 @@ metadata:
 spec:
   # Configuration parameters that can be overridden
   config:
-    model:
-      type: string
-      description: "Model name to use for evaluation (e.g., gemini-2.5-flash-lite)"
     openApiBasePath:
       type: string
       description: "Base path for OpenAI API"
@@ -27,8 +24,6 @@ spec:
         image: {{ include "testbench.image" . }}
         args:
           - evaluate.py
-          - "--model"
-          - "{{`{{ config.model }}`}}"
         env:
           - name: OPENAI_BASE_URL
             value: "{{`{{ config.openApiBasePath }}`}}"

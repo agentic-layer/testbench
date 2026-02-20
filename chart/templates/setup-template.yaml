@@ -1,7 +1,7 @@
 apiVersion: testworkflows.testkube.io/v1
 kind: TestWorkflowTemplate
 metadata:
-  name: ragas-setup-template
+  name: setup-template
   namespace: {{ include "testbench.namespace" . }}
   labels:
     {{- include "testbench.labels" . | nindent 4 }}
