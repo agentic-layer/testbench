@@ -1172,8 +1172,8 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
                 # Pass/fail badge
                 pass_result = sample.get(f"{metric_name}__pass")
                 if pass_result is not None:
-                    badge_class = "pass" if pass_result == "pass" else "fail"
-                    badge_label = "PASS" if pass_result == "pass" else "FAIL"
+                    badge_class = "pass" if pass_result == "pass" else "fail"  # nosec B105
+                    badge_label = "PASS" if pass_result == "pass" else "FAIL"  # nosec B105
                     cell_html += f' <span class="badge {badge_class}">{badge_label}</span>'
 
                 # Details collapsible
