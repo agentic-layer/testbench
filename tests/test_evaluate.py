@@ -5,12 +5,7 @@ This file provides basic import and structure validation.
 Comprehensive functional tests are in test_evaluate_experiment.py.
 """
 
-import sys
-from pathlib import Path
-
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from evaluate import MetricEvaluator, main  # noqa: E402
 

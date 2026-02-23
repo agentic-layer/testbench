@@ -1,13 +1,10 @@
 """Unit tests for testbench/evaluate.py (MetricEvaluator)."""
 
 import json
-import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from evaluate import MetricEvaluator, main  # noqa: E402
 from schema.models import (  # noqa: E402
