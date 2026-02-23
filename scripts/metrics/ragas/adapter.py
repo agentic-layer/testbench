@@ -85,9 +85,6 @@ class RagasMetricCallable:
                 tool_calls = [RagasToolCall(name=tc.name, args=tc.args) for tc in (turn.tool_calls or [])]
                 mapped.append(AIMessage(content=turn.content, tool_calls=tool_calls or None))
             elif turn.type == "tool":
-                tool_call_id = ""
-                if turn.tool_calls:
-                    tool_call_id = turn.tool_calls[0].name
                 mapped.append(ToolMessage(content=turn.content))
             else:
                 logger.warning(f"Unknown turn type '{turn.type}', treating as human message")
