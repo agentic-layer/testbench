@@ -118,4 +118,4 @@ jobs:
 
       - name: Run Test Workflow
         run: |
-          testkube run testworkflow multi-turn-workflow --watch
+          testkube run testworkflow example-workflow --watch
