@@ -8,7 +8,6 @@ import math
 from pathlib import Path
 
 import pytest
-
 from publish import (
     MetricsPublisher,
     _get_user_input_truncated,

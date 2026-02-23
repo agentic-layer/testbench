@@ -6,10 +6,8 @@ Tests the HTML visualization generation functionality.
 
 import json
 import math
-from pathlib import Path
 
 import pytest
-
 from visualize import (
     VisualizationData,
     _format_multi_turn_conversation,

@@ -6,7 +6,6 @@ Comprehensive functional tests are in test_evaluate_experiment.py.
 """
 
 import pytest
-
 from evaluate import MetricEvaluator, main  # noqa: E402
 
 

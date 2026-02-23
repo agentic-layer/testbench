@@ -3,10 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from metrics.protocol import MetricResult
 from schema.models import ExecutedStep, Reference, Turn
-
 
 # ── RagasFrameworkAdapter tests ──────────────────────────────────────────
 

@@ -3,7 +3,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from schema.a2a_client import A2AStepClient, A2AStepResult, initialize_client
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """
 End-to-end test that runs all scripts in the correct order:
-1. setup.py - Downloads, converts and saves Experiment to data/datasets/experiment.json
+1. setup.py - Downloads dataset from S3/MinIO, converts and saves Experiment to data/datasets/experiment.json
 2. run.py - Runs agent queries and saves ExecutedExperiment to data/experiments/executed_experiment.json
 3. evaluate.py - Evaluates results and saves EvaluatedExperiment to data/experiments/evaluated_experiment.json
 4. publish.py - Publishes metrics via OpenTelemetry OTLP
@@ -9,7 +9,8 @@ Usage:
     pytest tests_e2e/test_e2e.py
 
     # With custom configuration via environment variables:
-    E2E_DATASET_URL="http://localhost:11020/dataset.csv" \
+    E2E_S3_BUCKET="datasets" \
+    E2E_S3_KEY="dataset.csv" \
     E2E_AGENT_URL="http://localhost:8000" \
     E2E_MODEL="gemini-flash-latest" \
     E2E_WORKFLOW_NAME="weather-assistant-test" \
@@ -32,13 +33,15 @@ class E2ETestRunner:
 
     def __init__(
         self,
-        dataset_url: str,
+        s3_bucket: str,
+        s3_key: str,
         agent_url: str,
         model: str,
         workflow_name: str,
         otlp_endpoint: str = "localhost:4318",
     ):
-        self.dataset_url = dataset_url
+        self.s3_bucket = s3_bucket
+        self.s3_key = s3_key
         self.agent_url = agent_url
         self.model = model
         self.workflow_name = workflow_name
@@ -134,9 +137,9 @@ class E2ETestRunner:
             return False
 
     def run_setup(self) -> bool:
-        """Run setup.py to download and convert dataset."""
-        command = ["python3", str(self.setup_script), self.dataset_url]
-        success = self.run_command(command, "1. Setup - Download Dataset")
+        """Run setup.py to download dataset from S3/MinIO and convert."""
+        command = ["python3", str(self.setup_script), self.s3_bucket, self.s3_key]
+        success = self.run_command(command, "1. Setup - Download Dataset from S3")
 
         if success:
             return self.verify_file_exists(self.dataset_file, "setup.py")
@@ -217,24 +220,27 @@ def test_e2e_pipeline():
 
     This test can be run with pytest and uses environment variables or defaults
     for configuration. To customize, set these environment variables:
-    - E2E_DATASET_URL
+    - E2E_S3_BUCKET
+    - E2E_S3_KEY
     - E2E_AGENT_URL
     - E2E_MODEL
     - E2E_WORKFLOW_NAME
     - E2E_OTLP_ENDPOINT
 
     Example:
-        E2E_DATASET_URL="https://example.com/data.csv" pytest tests_e2e/test_e2e.py
+        E2E_S3_BUCKET="datasets" E2E_S3_KEY="dataset.csv" pytest tests_e2e/test_e2e.py
     """
 
-    dataset_url = os.getenv("E2E_DATASET_URL", "http://localhost:11020/dataset.csv")
+    s3_bucket = os.getenv("E2E_S3_BUCKET", "datasets")
+    s3_key = os.getenv("E2E_S3_KEY", "dataset.csv")
     agent_url = os.getenv("E2E_AGENT_URL", "http://localhost:11010")
     model = os.getenv("E2E_MODEL", "gemini-2.5-flash-lite")
     workflow_name = os.getenv("E2E_WORKFLOW_NAME", "Test Workflow")
     otlp_endpoint = os.getenv("E2E_OTLP_ENDPOINT", "localhost:4318")
 
     runner = E2ETestRunner(
-        dataset_url=dataset_url,
+        s3_bucket=s3_bucket,
+        s3_key=s3_key,
         agent_url=agent_url,
         model=model,
         workflow_name=workflow_name,

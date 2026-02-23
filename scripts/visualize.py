@@ -1145,9 +1145,7 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
                 tc_json = html.escape(json.dumps(ref_tool_calls, indent=2))
                 ref_details_html += f"<p><strong>Expected tool calls:</strong></p><pre>{tc_json}</pre>"
             if ref_topics:
-                ref_details_html += (
-                    f'<p><strong>Expected topics:</strong> {html.escape(", ".join(ref_topics))}</p>'
-                )
+                ref_details_html += f"<p><strong>Expected topics:</strong> {html.escape(', '.join(ref_topics))}</p>"
             ref_details_html += "</details>"
 
         html_str += f"""                <tr>
@@ -1181,8 +1179,7 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
                 if details:
                     details_json = html.escape(json.dumps(details, indent=2))
                     cell_html += (
-                        f'<details class="eval-details"><summary>details</summary>'
-                        f"<pre>{details_json}</pre></details>"
+                        f'<details class="eval-details"><summary>details</summary><pre>{details_json}</pre></details>'
                     )
 
                 html_str += f"                    <td>{cell_html}</td>\n"

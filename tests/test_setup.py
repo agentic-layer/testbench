@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-
 from setup import custom_convert_csv, dataframe_to_experiment, get_converter, main
 
 

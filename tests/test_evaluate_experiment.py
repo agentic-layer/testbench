@@ -5,7 +5,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from evaluate import MetricEvaluator, main  # noqa: E402
 from schema.models import (  # noqa: E402
     EvaluatedExperiment,
