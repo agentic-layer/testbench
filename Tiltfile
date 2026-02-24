@@ -66,10 +66,10 @@ k8s_kind(
     pod_readiness='ignore',
 )
 
-k8s_resource('ragas-evaluate-template', resource_deps=['testkube'])
-k8s_resource('ragas-publish-template', resource_deps=['testkube'])
-k8s_resource('ragas-run-template', resource_deps=['testkube'])
-k8s_resource('ragas-setup-template', resource_deps=['testkube'])
-k8s_resource('ragas-visualize-template', resource_deps=['testkube'])
-k8s_resource('multi-turn-workflow', resource_deps=['testkube'])
-k8s_resource('multi-turn-workflow-trigger', resource_deps=['testkube'])
+k8s_resource('evaluate-template', resource_deps=['testkube'])
+k8s_resource('publish-template', resource_deps=['testkube'])
+k8s_resource('run-template', resource_deps=['testkube'])
+k8s_resource('setup-template', resource_deps=['testkube'])
+k8s_resource('visualize-template', resource_deps=['testkube'])
+k8s_resource('example-workflow', resource_deps=['testkube'])
+k8s_resource('example-workflow-trigger', resource_deps=['testkube'])

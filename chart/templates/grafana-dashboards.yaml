@@ -9,5 +9,7 @@ metadata:
 data:
   evaluation-dashboard.json: |
 {{ .Files.Get "dashboards/evaluation-dashboard.json" | indent 4 }}
+  execution-details-dashboard.json: |
+{{ .Files.Get "dashboards/execution-details-dashboard.json" | indent 4 }}
   testkube-dashboard.json: |
 {{ .Files.Get "dashboards/testkube-dashboard.json" | indent 4 }}

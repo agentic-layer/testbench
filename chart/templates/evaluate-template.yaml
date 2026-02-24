@@ -1,7 +1,7 @@
 apiVersion: testworkflows.testkube.io/v1
 kind: TestWorkflowTemplate
 metadata:
-  name: ragas-evaluate-template
+  name: evaluate-template
   namespace: {{ include "testbench.namespace" . }}
   labels:
     {{- include "testbench.labels" . | nindent 4 }}
@@ -9,9 +9,6 @@ metadata:
 spec:
   # Configuration parameters that can be overridden
   config:
-    model:
-      type: string
-      description: "Model name to use for evaluation (e.g., gemini-2.5-flash-lite)"
     openApiBasePath:
       type: string
       description: "Base path for OpenAI API"
@@ -22,15 +19,11 @@ spec:
     - name: evaluate-results
       artifacts:
         paths:
-          - "data/experiments/ragas_evaluation.jsonl"
+          - "data/experiments/evaluated_experiment.json"
       run:
         image: {{ include "testbench.image" . }}
-        command:
-          - sh
-          - -c
         args:
-          - |
-            uv run python3 evaluate.py "{{`{{ config.model }}`}}" --metrics-config "/app/config/metrics.yaml"
+          - evaluate.py
         env:
           - name: OPENAI_BASE_URL
             value: "{{`{{ config.openApiBasePath }}`}}"

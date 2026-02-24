@@ -1,482 +1,197 @@
+"""Execute an Experiment against an A2A agent using ExperimentRuntime.
+
+Uses ExperimentRuntime hooks to:
+1. Query an agent via A2A protocol
+2. Maintain context_id across steps within a scenario
+3. Capture trace_id per scenario via OpenTelemetry
+4. Convert the runtime output into ExecutedExperiment with proper types
+"""
+
+from __future__ import annotations
+
 import argparse
 import asyncio
 import hashlib
-import json
 import logging
-from logging import Logger
-from typing import Any
-from uuid import uuid4
 
 import httpx
-from a2a.client.client import Client, ClientConfig
-from a2a.client.client_factory import ClientFactory, minimal_agent_card
-from a2a.types import (
-    AgentCard,
-    Message,
-    Part,
-    Role,
-    TextPart,
-)
+from opentelemetry import context as context_api
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
 from otel_setup import setup_otel
-from pydantic import BaseModel
-from ragas import Dataset, experiment
+from schema.a2a_client import A2AStepClient
+from schema.models import (
+    ExecutedExperiment,
+    ExecutedScenario,
+    ExecutedStep,
+    Experiment,
+    Scenario,
+    Step,
+)
+from schema.runtime import ExperimentRuntime
 
-# Set up module-level logger
 logging.basicConfig(level=logging.INFO)
-logger: Logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
-def validate_multi_turn_input(user_input: list) -> list[dict]:
-    """
-    Validate and normalize multi-turn user_input.
-
-    Expected format: [{"content": "...", "type": "human"}, {"content": "...", "type": "ai"}, ...]
-
-    Args:
-        user_input: List of message dictionaries
-
-    Returns:
-        Validated list of message dicts
-
-    Raises:
-        ValueError: If format is invalid
-    """
-    if not isinstance(user_input, list):
-        raise ValueError(f"Multi-turn user_input must be list, got {type(user_input)}")
-
-    if not user_input:
-        raise ValueError("Multi-turn user_input cannot be empty")
-
-    for i, msg in enumerate(user_input):
-        if not isinstance(msg, dict):
-            raise ValueError(f"Message {i} must be dict, got {type(msg)}")
-
-        if "content" not in msg:
-            raise ValueError(f"Message {i} missing 'content' field")
-
-        if "type" not in msg:
-            raise ValueError(f"Message {i} missing 'type' field")
-
-        if msg["type"] not in ("human", "ai", "tool"):
-            raise ValueError(f"Message {i} has invalid type: {msg['type']}")
-
-    return user_input
+def _content_hash(data: str, prefix: str = "") -> str:
+    """Generate a deterministic ID from content using SHA256."""
+    digest = hashlib.sha256(data.encode()).hexdigest()[:16]
+    return f"{prefix}{digest}" if prefix else digest
 
 
-async def initialize_client(agent_url: str, client: httpx.AsyncClient) -> Client:
-    """Initialize the A2A client with a minimal agent card."""
-    logger.info(f"Initializing A2A client for: {agent_url}")
+class A2AExecutor:
+    """Execute an Experiment by querying an A2A agent for each step.
 
-    # Create a minimal agent card with the provided URL
-    agent_card: AgentCard = minimal_agent_card(agent_url)
-
-    config: ClientConfig = ClientConfig(httpx_client=client)
-    factory: ClientFactory = ClientFactory(config)
-    a2a_client: Client = factory.create(agent_card)
-
-    logger.info("A2A client initialized successfully")
-
-    return a2a_client
-
-
-def _get_sample_hash(sample: str | list | dict) -> str:
-    """Generate a short hash of the sample for stable identification."""
-    # Convert to JSON string for hashing (dicts and lists need sorting for consistency)
-    if isinstance(sample, (list, dict)):
-        input_str = json.dumps(sample, sort_keys=True)
-    else:
-        input_str = sample
-    return hashlib.sha256(input_str.encode()).hexdigest()[:12]
-
-
-def _validate_hash_uniqueness(experiment_file: str) -> None:
-    """
-    Validate that all sample_hash values in experiment file are unique.
-
-    Args:
-        experiment_file: Path to experiment JSONL file
-
-    Raises:
-        ValueError: If duplicate hashes or missing hashes found
-    """
-    hash_to_lines: dict[str, list[int]] = {}
-
-    with open(experiment_file, "r") as f:
-        for line_num, line in enumerate(f, start=1):
-            data = json.loads(line)
-
-            if "sample_hash" not in data:
-                raise ValueError(f"Missing sample_hash at line {line_num}")
-
-            sample_hash = data["sample_hash"]
-
-            if sample_hash in hash_to_lines:
-                hash_to_lines[sample_hash].append(line_num)
-            else:
-                hash_to_lines[sample_hash] = [line_num]
-
-    # Find duplicates
-    duplicates = {h: lines for h, lines in hash_to_lines.items() if len(lines) > 1}
-
-    if duplicates:
-        dup_count = len(duplicates)
-        error_msg = f"Found {dup_count} duplicate sample_hash value(s):\n"
-        for hash_val, lines in duplicates.items():
-            error_msg += f"  {hash_val}: lines {lines}\n"
-        raise ValueError(error_msg.strip())
-
-
-@experiment()
-async def single_turn_experiment(row, agent_url: str, workflow_name: str) -> dict[str, str | list]:
-    """
-    Single-turn experiment function that processes each row from the dataset.
-
-    Sends a single user message to the agent and captures the response.
-
-    Args:
-        row: A dictionary containing 'user_input' (str), 'retrieved_contexts', and 'reference' fields
-        agent_url: The URL of the agent to query
-        workflow_name: Name of the test workflow for span labeling
-
-    Returns:
-        Dictionary with original row data plus 'response' and 'trace_id'
+    Wraps :class:`ExperimentRuntime` and manages per-scenario state
+    (``context_id``, OTel spans) plus the post-run type conversion from
+    ``Scenario`` → ``ExecutedScenario``.
     """
 
-    # Get tracer for creating spans
-    tracer = trace.get_tracer("testbench.run")
+    def __init__(self, agent_url: str, workflow_name: str, input_path: str, output_path: str) -> None:
+        self.agent_url = agent_url
+        self.workflow_name = workflow_name
+        self.input_path = input_path
+        self.output_path = output_path
 
-    user_input = row.get("user_input", "")
-    sample_hash = _get_sample_hash(row)
+        # Per-scenario mutable state, reset in before_scenario
+        self._context_id: str | None = None
+        self._current_trace_id: str | None = None
+        self._scenario_span: trace.Span | None = None
+        self._span_token: context_api.context.Token[context_api.context.Context] | None = None
 
-    # Create span for this test case
-    # Span name includes user_input preview for debugging
-    user_input_preview = user_input[:50]
-    span_name = f"query_agent: {user_input_preview}"
+        # Deterministic ID state
+        self._current_scenario_id: str = ""
+        self._step_index: int = 0
 
-    with tracer.start_as_current_span(span_name) as span:
-        # Extract Trace ID from current span context
-        span_context = span.get_span_context()
-        trace_id = format(span_context.trace_id, "032x")  # 32-char hex string
+        # Reusable HTTP client and A2A step client (created once in run())
+        self._http_client: httpx.AsyncClient | None = None
+        self._a2a_client: A2AStepClient | None = None
 
-        # Add span attributes for filtering/debugging in Tempo UI
-        span.set_attribute("test.user_input", user_input)
-        span.set_attribute("test.reference", row.get("reference", ""))
-        span.set_attribute("agent.url", agent_url)
-        span.set_attribute("workflow.name", workflow_name)
+        self._tracer = trace.get_tracer("testbench.run_experiment")
 
-        try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300)) as client:
-                a2a_client = await initialize_client(agent_url, client)
+    # ------------------------------------------------------------------
+    # Hooks
+    # ------------------------------------------------------------------
 
-                # Get the input from the row
-                input_text = row.get("user_input")
+    async def before_scenario(self, scenario: Scenario) -> None:
+        """Reset conversation state and start an OTel span for the scenario."""
+        self._context_id = None
+        self._step_index = 0
 
-                message = Message(
-                    role=Role.user,
-                    parts=[Part(TextPart(text=input_text))],
-                    message_id=uuid4().hex,
-                )
+        scenario_id = _content_hash(f"{self.workflow_name}:{scenario.name}", prefix="scn_")
+        self._current_scenario_id = scenario_id
 
-                logger.info(f"Processing: {input_text}")
+        # Start a scenario span and attach it as the active context so that
+        # instrumented HTTPX calls during on_step become children of this span.
+        self._scenario_span = self._tracer.start_span(f"scenario: {scenario.name}")
+        ctx = trace.set_span_in_context(self._scenario_span)
+        self._span_token = context_api.attach(ctx)
 
-                async for response in a2a_client.send_message(message):
-                    # Client returns tuples, extract the task/message
-                    if isinstance(response, tuple):
-                        task, _ = response
-                        if task:
-                            artifacts: list = task.model_dump(mode="json", include={"artifacts"}).get("artifacts", [])
-
-                            # Extract the model response
-                            if artifacts and artifacts[0].get("parts"):
-                                output_text = artifacts[0]["parts"][0].get("text", "")
-                            else:
-                                logger.warning("No text found in artifacts")
-                    else:
-                        logger.warning(f"Unexpected response: {response}")
-
-            # Mark span as successful
-            span.set_status(Status(StatusCode.OK))
-
-        except Exception as e:
-            logger.error(f'Error processing input "{row.get("user_input")}": {str(e)}')
-            output_text = f"ERROR: {str(e)}"
-
-            # Record exception in span for debugging
-            span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR, description=str(e)))
-
-        # Return the original row data plus results AND trace_id
-        result: dict[str, str | list] = {
-            **row,
-            "sample_hash": sample_hash,
-            "response": output_text,
-            "trace_id": trace_id,
-        }
-
-        return result
-
-
-@experiment()
-async def multi_turn_experiment(row, agent_url: str, workflow_name: str) -> dict[str, list | str]:
-    """
-    Multi-turn experiment function for conversational interactions.
-
-    Processes a conversation by:
-    1. Extracting human messages from input
-    2. Sequentially querying agent for each turn
-    3. Maintaining context_id across turns
-    4. Extracting full conversation history from final task
-    5. Converting to RAGAS MultiTurnSample format
-
-    Args:
-        row: Dictionary with 'user_input' (list of message dicts) and 'reference'
-        agent_url: URL of the agent to query
-        workflow_name: Name of the test workflow for span labeling
-
-    Returns:
-        Dictionary with 'user_input' (list of RAGAS messages), 'reference', 'trace_id'
-    """
-    # Get tracer for creating spans
-    tracer = trace.get_tracer("testbench.run")
-
-    sample_hash = _get_sample_hash(row)
-
-    # Create parent span for entire conversation
-    user_input_preview = str(row.get("user_input", []))[:100]
-    span_name = f"query_agent_multi_turn: {user_input_preview}"
-
-    with tracer.start_as_current_span(span_name) as span:
-        # Extract trace ID
-        span_context = span.get_span_context()
+        span_context = self._scenario_span.get_span_context()
         trace_id = format(span_context.trace_id, "032x")
+        self._current_trace_id = trace_id
 
-        # Add span attributes
-        span.set_attribute("test.turn_count", len(row.get("user_input", [])))
-        span.set_attribute("test.reference", row.get("reference", ""))
-        span.set_attribute("agent.url", agent_url)
-        span.set_attribute("workflow.name", workflow_name)
-        span.set_attribute("test.conversation_type", "multi_turn")
+        self._scenario_span.set_attribute("scenario.name", scenario.name)
+        self._scenario_span.set_attribute("scenario.id", scenario_id)
+        self._scenario_span.set_attribute("workflow.name", self.workflow_name)
+        self._scenario_span.set_attribute("agent.url", self.agent_url)
+        self._scenario_span.set_attribute("scenario.step_count", len(scenario.steps))
 
-        try:
-            # Validate input format
-            user_input = validate_multi_turn_input(row.get("user_input"))
+        logger.info("Scenario '%s' started (id=%s, trace_id=%s)", scenario.name, scenario_id, trace_id)
 
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300)) as client:
-                a2a_client = await initialize_client(agent_url, client)
+    async def on_step(self, step: Step, scenario: Scenario) -> ExecutedStep:
+        """Send step.input to the agent and return an ExecutedStep with turns."""
+        if self._a2a_client is None:
+            raise RuntimeError("A2A client not initialised")
 
-                # Extract only human messages (agent messages are from dataset, not sent)
-                human_messages = [msg for msg in user_input if msg.get("type") == "human"]
+        logger.info("  Step: %s", step.input[:80])
 
-                if not human_messages:
-                    raise ValueError("No human messages found in user_input")
+        result = await self._a2a_client.send_step(step.input, self._context_id)
+        self._context_id = result.context_id
+        turns = result.turns
 
-                context_id = None
-                conversation_messages: list[dict[str, Any]] = []
-                seen_message_ids = set()  # Track message_ids to avoid duplicates across all turns
+        step_id = _content_hash(f"{self._current_scenario_id}:{step.input}:{self._step_index}", prefix="stp_")
+        self._step_index += 1
 
-                # Sequentially query agent for each human turn
-                for turn_idx, human_msg in enumerate(human_messages):
-                    # Create child span for this turn
-                    turn_span_name = f"turn_{turn_idx + 1}: {human_msg['content'][:50]}"
-                    with tracer.start_as_current_span(turn_span_name) as turn_span:
-                        turn_span.set_attribute("turn.index", turn_idx + 1)
-                        turn_span.set_attribute("turn.content", human_msg["content"])
+        return ExecutedStep(
+            id=step_id,
+            input=step.input,
+            reference=step.reference,
+            custom_values=step.custom_values,
+            metrics=step.metrics,
+            turns=turns,
+        )
 
-                        # Create A2A message
-                        parts: list[Part] = [Part(root=TextPart(text=human_msg["content"]))]
-                        message = Message(
-                            role=Role.user,
-                            parts=parts,
-                            message_id=uuid4().hex,
-                            context_id=context_id,  # None for first turn, preserved after
-                        )
+    async def after_scenario(self, original: Scenario, executed: ExecutedScenario) -> None:
+        """Log scenario completion, end the scenario span, and detach context."""
+        executed.id = self._current_scenario_id
+        executed.trace_id = self._current_trace_id
 
-                        logger.info(f"Turn {turn_idx + 1}/{len(human_messages)}: {human_msg['content']}")
+        # Detach the scenario context and end the span so child spans are properly nested
+        if self._span_token is not None:
+            context_api.detach(self._span_token)
+            self._span_token = None
+        if self._scenario_span is not None:
+            self._scenario_span.end()
+            self._scenario_span = None
 
-                        # Send message and get response
-                        turn_task = None
-                        async for response in a2a_client.send_message(message):
-                            if isinstance(response, tuple):
-                                task, _ = response
-                                if task:
-                                    turn_task = task
+        logger.info("Scenario '%s' completed (%d steps)", original.name, len(executed.steps))
 
-                                    # Capture context_id from first response
-                                    if not context_id:
-                                        context_id = task.context_id
-                                        logger.info(f"Captured context_id: {context_id}")
-                                        span.set_attribute("conversation.context_id", context_id)
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-                        # Process this turn's history immediately
-                        if turn_task and hasattr(turn_task, "history") and turn_task.history:
-                            for msg in turn_task.history:
-                                # Skip duplicate messages
-                                if msg.message_id in seen_message_ids:
-                                    logger.debug(f"Skipping duplicate message_id: {msg.message_id}")
-                                    continue
-                                seen_message_ids.add(msg.message_id)
+    async def run(self) -> ExecutedExperiment:
+        """Execute all scenarios and return a fully-typed ExecutedExperiment."""
+        runtime: ExperimentRuntime[Experiment, ExecutedExperiment] = ExperimentRuntime(
+            on_step=self.on_step,
+            input_path=self.input_path,
+            output_path=self.output_path,
+            before_scenario=self.before_scenario,
+            after_scenario=self.after_scenario,  # type: ignore[arg-type]
+            output_model=ExecutedExperiment,
+        )
 
-                                if msg.role == Role.user:
-                                    # Extract user message text
-                                    text_parts = []
-                                    for part in msg.parts:
-                                        actual_part = part.root if hasattr(part, "root") else part
-                                        if hasattr(actual_part, "text"):
-                                            text_parts.append(actual_part.text)
-                                    content = " ".join(text_parts) if text_parts else ""
-                                    conversation_messages.append({"content": content, "type": "human"})
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300)) as client:
+            self._http_client = client
+            self._a2a_client = A2AStepClient(self.agent_url, client)
+            result = await runtime.run()
+            self._a2a_client = None
+            self._http_client = None
 
-                                elif msg.role == Role.agent:
-                                    # Process agent messages
-                                    tool_calls_in_msg = []
-                                    tool_responses_in_msg = []
-                                    text_content = ""
-
-                                    # Strategy 1: Check message metadata for tool calls
-                                    if msg.metadata and "tool_calls" in msg.metadata:
-                                        metadata_tool_calls = msg.metadata.get("tool_calls", [])
-                                        if isinstance(metadata_tool_calls, list):
-                                            tool_calls_in_msg.extend(metadata_tool_calls)
-
-                                    # Strategy 2: Check parts for DataParts and TextParts
-                                    for part in msg.parts:
-                                        actual_part = part.root if hasattr(part, "root") else part
-
-                                        # Check for TextPart (final response)
-                                        if hasattr(actual_part, "text"):
-                                            text_content = actual_part.text
-
-                                        # Check for DataPart (tool calls or responses)
-                                        elif (
-                                            hasattr(actual_part, "kind")
-                                            and actual_part.kind == "data"
-                                            and hasattr(actual_part, "data")
-                                            and isinstance(actual_part.data, dict)
-                                            and "name" in actual_part.data
-                                        ):
-                                            # Tool call: has args, not response
-                                            if "args" in actual_part.data and "response" not in actual_part.data:
-                                                tool_calls_in_msg.append(
-                                                    {
-                                                        "name": actual_part.data.get("name"),
-                                                        "args": actual_part.data.get("args", {}),
-                                                    }
-                                                )
-
-                                            # Tool response: has response, not args
-                                            elif "response" in actual_part.data and "args" not in actual_part.data:
-                                                tool_response_data = actual_part.data.get("response", {})
-                                                # Keep as dict/string representation
-                                                response_content = str(tool_response_data)
-                                                tool_responses_in_msg.append(
-                                                    {"content": response_content, "type": "tool"}
-                                                )
-
-                                    # Add AI message with tool calls (if any) - with empty content
-                                    if tool_calls_in_msg:
-                                        conversation_messages.append(
-                                            {"content": "", "type": "ai", "tool_calls": tool_calls_in_msg}
-                                        )
-                                        logger.info(f"Extracted {len(tool_calls_in_msg)} tool call(s)")
-
-                                    # Add tool response messages (if any)
-                                    if tool_responses_in_msg:
-                                        conversation_messages.extend(tool_responses_in_msg)
-                                        logger.info(f"Extracted {len(tool_responses_in_msg)} tool response(s)")
-
-                                    # Add AI message with text content (if any)
-                                    if text_content:
-                                        conversation_messages.append({"content": text_content, "type": "ai"})
-                        else:
-                            logger.warning(f"Turn {turn_idx + 1}: task.history not available")
-
-                # Validate we got responses
-                if len(conversation_messages) < 2:
-                    raise ValueError(f"Incomplete conversation: only {len(conversation_messages)} messages")
-
-                # Use the manually built conversation
-                user_input_serialized = conversation_messages
-
-                # Mark span as successful
-                span.set_status(Status(StatusCode.OK))
-                span.set_attribute("conversation.message_count", len(conversation_messages))
-
-        except Exception as e:
-            logger.error(f"Error processing multi-turn conversation: {str(e)}")
-
-            # Record exception in span
-            span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR, description=str(e)))
-
-            # Return minimal result
-            return {
-                **row,
-                "sample_hash": sample_hash,
-                "user_input": row.get("user_input"),
-                "trace_id": trace_id,
-            }
-
-        # Return result in MultiTurnSample format
-        result = {
-            **row,
-            "sample_hash": sample_hash,
-            "user_input": user_input_serialized,
-            "trace_id": trace_id,
-        }
-
+        result.id = self.workflow_name
         return result
 
 
-async def main(agent_url: str, workflow_name: str) -> None:
-    """Main function to load Dataset and run appropriate Experiment."""
-
-    # Initialize OpenTelemetry tracing
+async def main(agent_url: str, workflow_name: str, input_path: str) -> None:
+    """Load an experiment, execute it, and write the result."""
     setup_otel()
 
-    # Load existing dataset
-    logger.info("Loading dataset from data/datasets/ragas_dataset.jsonl")
-    dataset: Dataset[BaseModel] = Dataset.load(name="ragas_dataset", backend="local/jsonl", root_dir="./data")
-    logger.info(f"Dataset loaded with {len(dataset)} samples")
-
-    # Detect dataset type by inspecting first row
-    if len(dataset) == 0:
-        raise ValueError("Dataset is empty")
-
-    first_row = dataset[0]
-    is_multi_turn = isinstance(first_row.get("user_input"), list)
-
-    if is_multi_turn:
-        logger.info("Detected multi-turn dataset")
-        logger.info("Starting multi-turn experiment...")
-        await multi_turn_experiment.arun(
-            dataset, name="ragas_experiment", agent_url=agent_url, workflow_name=workflow_name
-        )
-    else:
-        logger.info("Detected single-turn dataset")
-        logger.info("Starting single-turn experiment...")
-        await single_turn_experiment.arun(
-            dataset, name="ragas_experiment", agent_url=agent_url, workflow_name=workflow_name
-        )
-
-    logger.info("Experiment completed successfully")
-    logger.info("Results saved to data/experiments/ragas_experiment.jsonl")
+    output_path = "data/experiments/executed_experiment.json"
+    executor = A2AExecutor(
+        agent_url=agent_url,
+        workflow_name=workflow_name,
+        input_path=input_path,
+        output_path=output_path,
+    )
+    await executor.run()
+    logger.info("Wrote executed experiment to %s", output_path)
 
 
 if __name__ == "__main__":
-    # Parse parameters the script was called with
-    parser = argparse.ArgumentParser(
-        description="Runs all queries from the Ragas dataset through the agent at the provided URL"
-    )
-    parser.add_argument("url", help="URL to agent")
+    parser = argparse.ArgumentParser(description="Execute an experiment against an A2A agent")
+    parser.add_argument("url", help="A2A agent URL")
     parser.add_argument(
         "workflow_name",
         nargs="?",
         default="local-test",
-        help="Name of the test workflow (e.g., 'weather-assistant-test'). Default: 'local-test'",
+        help="Workflow name for OTel labeling (default: local-test)",
+    )
+    parser.add_argument(
+        "--input",
+        default="data/datasets/experiment.json",
+        help="Path to experiment JSON file (default: data/datasets/experiment.json)",
     )
     args = parser.parse_args()
 
-    # Call main with parsed arguments
-    asyncio.run(main(args.url, args.workflow_name))
+    asyncio.run(main(args.url, args.workflow_name, args.input))

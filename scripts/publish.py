@@ -1,9 +1,20 @@
+"""Publish evaluation metrics via OpenTelemetry OTLP.
+
+Phase 4 of the evaluation pipeline. Reads an ``EvaluatedExperiment`` JSON
+file and publishes per-step metric scores as OpenTelemetry gauge metrics.
+
+Usage::
+
+    OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" python3 scripts/publish.py workflow exec-1 1
+"""
+
+from __future__ import annotations
+
 import argparse
-import json
+import asyncio
 import logging
 import math
 import os
-from dataclasses import dataclass
 from logging import Logger
 from typing import Any, TypeGuard
 
@@ -12,32 +23,17 @@ from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExp
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
-from ragas import Experiment
-from ragas.backends import LocalJSONLBackend
+from schema.models import (
+    EvaluatedExperiment,
+    EvaluatedScenario,
+    EvaluatedStep,
+    Scenario,
+)
+from schema.runtime import ExperimentRuntime
 
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)
 logger: Logger = logging.getLogger(__name__)
-
-
-@dataclass
-class EvaluationData:
-    """Container for all evaluation data to be published as metrics."""
-
-    individual_results: list[dict[str, Any]]
-    total_tokens: dict[str, int]
-    total_cost: float
-
-
-def load_evaluation_data(file_path: str) -> EvaluationData:
-    """Load the evaluation_scores.json file and return the relevant data for metrics."""
-    with open(file_path, "r") as file:
-        data = json.load(file)
-        return EvaluationData(
-            individual_results=data.get("individual_results", []),
-            total_tokens=data.get("total_tokens", {"input_tokens": 0, "output_tokens": 0}),
-            total_cost=data.get("total_cost", 0.0),
-        )
 
 
 def _is_metric_value(value: Any) -> TypeGuard[int | float]:
@@ -49,196 +45,175 @@ def _is_metric_value(value: Any) -> TypeGuard[int | float]:
     return True
 
 
-def _get_user_input_truncated(user_input: str | list, max_length: int = 50) -> str:
+def _get_user_input_truncated(user_input: str, max_length: int = 50) -> str:
     """Truncate user input text for display in metric labels."""
-    # Convert list to readable string (multi-turn conversations)
-    if isinstance(user_input, list):
-        user_input_str = json.dumps(user_input)
-    else:
-        user_input_str = user_input
-
-    if len(user_input_str) <= max_length:
-        return user_input_str
-    return user_input_str[:max_length] + "..."
+    if len(user_input) <= max_length:
+        return user_input
+    return user_input[:max_length] + "..."
 
 
-def create_and_push_metrics(
-    evaluation_data: Experiment, workflow_name: str, execution_id: str, execution_number: int
-) -> None:
+class MetricsPublisher:
+    """Publish evaluation metrics via OTLP using :class:`ExperimentRuntime`.
+
+    Uses the runtime hook pattern to iterate scenarios/steps consistently
+    with the rest of the pipeline.
     """
-    Create OpenTelemetry metrics for evaluation results and push via OTLP.
 
-    Creates per-sample gauges for each metric, plus token usage and cost gauges.
+    def __init__(
+        self,
+        input_path: str,
+        workflow_name: str,
+        execution_id: str,
+        execution_number: int,
+    ) -> None:
+        self._input_path = input_path
+        self._workflow_name = workflow_name
+        self._execution_id = execution_id
+        self._execution_number = execution_number
 
-    The OTLP endpoint is read from the OTEL_EXPORTER_OTLP_ENDPOINT environment variable,
-    with a default of 'http://localhost:4318' if not set.
+        self._provider: MeterProvider | None = None
+        self._gauge: Any = None
+        self._current_trace_id: str = "missing-trace-id"
+        self._current_experiment_id: str = ""
+        self._current_scenario_id: str = ""
+        self._current_scenario_name: str = ""
+        self._current_step_index: int = 0
 
-    Args:
-        evaluation_data: Container with individual results, token counts, and cost
-        workflow_name: Name of the test workflow (used as label to distinguish workflows)
-        execution_id: Testkube execution ID for this workflow run
-        execution_number: Number of the execution for the current workflow
-    """
-    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
-    if not otlp_endpoint.startswith("http://") and not otlp_endpoint.startswith("https://"):
-        otlp_endpoint = f"http://{otlp_endpoint}"
+    # ------------------------------------------------------------------
+    # Hooks
+    # ------------------------------------------------------------------
 
-    exporter = OTLPMetricExporter(endpoint=f"{otlp_endpoint}/v1/metrics")
-    reader = PeriodicExportingMetricReader(exporter=exporter, export_interval_millis=3600000)
-    resource = Resource.create({"service.name": "ragas-evaluation", "workflow.name": workflow_name})
-    provider = MeterProvider(resource=resource, metric_readers=[reader])
-    metrics.set_meter_provider(provider)
-    meter = metrics.get_meter("ragas.evaluation", "1.0.0")
+    async def before_run(self, experiment: EvaluatedExperiment) -> None:  # type: ignore[override]
+        """Create OTel MeterProvider, exporter, and gauge instrument."""
+        otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+        if not otlp_endpoint.startswith("http://") and not otlp_endpoint.startswith("https://"):
+            otlp_endpoint = f"http://{otlp_endpoint}"
 
-    try:
-        logger.info(f"Pushing metrics to OTLP endpoint at {otlp_endpoint}...")
+        exporter = OTLPMetricExporter(endpoint=f"{otlp_endpoint}/v1/metrics")
+        reader = PeriodicExportingMetricReader(exporter=exporter, export_interval_millis=3600000)
+        resource = Resource.create({"service.name": "testbench", "workflow.name": self._workflow_name})
+        self._provider = MeterProvider(resource=resource, metric_readers=[reader])
+        metrics.set_meter_provider(self._provider)
+        meter = metrics.get_meter("testbench", "1.0.0")
 
-        # Collect metric names from individual results (any numeric field is a metric)
-        metric_names: set[str] = set()
-        for result in evaluation_data:
-            for key, value in result["individual_results"].items():
-                if _is_metric_value(value):
-                    metric_names.add(key)
-
-        # Single gauge for all evaluation metrics, differentiated by 'name' attribute
-        metric_gauge = meter.create_gauge(
+        self._gauge = meter.create_gauge(
             name="testbench_evaluation_metric",
-            description="Evaluation metric from RAGAS testbench",
+            description="Evaluation metric from testbench",
             unit="",
         )
 
-        # Set per-sample values for each metric
-        for metric_name in sorted(metric_names):
-            for result in evaluation_data:
-                score = result["individual_results"].get(metric_name)
-                if not _is_metric_value(score):
-                    logger.debug(f"Skipping invalid metric value for {metric_name}: {score}")
+        self._current_experiment_id = experiment.id or ""
+        logger.info("Pushing metrics to OTLP endpoint at %s...", otlp_endpoint)
+
+    async def before_scenario(self, scenario: Scenario) -> None:
+        """Track the current scenario's trace_id and metadata."""
+        trace_id = "missing-trace-id"
+        if isinstance(scenario, EvaluatedScenario) and scenario.trace_id:
+            trace_id = scenario.trace_id
+        self._current_trace_id = trace_id
+        self._current_scenario_id = scenario.id if isinstance(scenario, EvaluatedScenario) and scenario.id else ""
+        self._current_scenario_name = scenario.name
+        self._current_step_index = 0
+
+    async def on_step(self, step: EvaluatedStep, scenario: Scenario) -> EvaluatedStep:  # type: ignore[override]
+        """Record gauge values for each evaluation in the step."""
+        step_id = step.id or "unknown"
+        user_input_truncated = _get_user_input_truncated(step.input)
+
+        if step.evaluations:
+            for evaluation in step.evaluations:
+                metric_name = evaluation.metric.metric_name
+                score = evaluation.result.score
+
+                if score is None or not _is_metric_value(score):
+                    logger.debug("Skipping invalid metric value for %s: %s", metric_name, score)
                     continue
-                trace_id = result.get("trace_id")
-                if not trace_id:
-                    logger.warning(f"Missing trace_id for sample in execution {execution_id}")
-                    trace_id = "missing-trace-id"
-                user_input = result.get("user_input", "(user_input missing or invalid)")
-                sample_hash = result.get("sample_hash", "")
+
                 attributes = {
                     "name": metric_name,
-                    "workflow_name": workflow_name,
-                    "execution_id": execution_id,
-                    "execution_number": execution_number,
-                    "trace_id": trace_id,
-                    "sample_hash": sample_hash,
-                    "user_input_truncated": _get_user_input_truncated(user_input),
+                    "workflow_name": self._workflow_name,
+                    "execution_id": self._execution_id,
+                    "execution_number": self._execution_number,
+                    "experiment_id": self._current_experiment_id,
+                    "scenario_id": self._current_scenario_id,
+                    "scenario_name": self._current_scenario_name,
+                    "step_id": step_id,
+                    "step_index": str(self._current_step_index),
+                    "trace_id": self._current_trace_id,
+                    "threshold": str(evaluation.metric.threshold) if evaluation.metric.threshold is not None else "",
+                    "result": evaluation.result.result or "",
+                    "user_input_truncated": user_input_truncated,
                 }
-                metric_gauge.set(score, attributes)
-                logger.info(f"testbench_evaluation_metric{attributes} = {score}")
+                self._gauge.set(score, attributes)  # type: ignore[arg-type]
+                logger.info("testbench_evaluation_metric%s = %s", attributes, score)
 
-        # Token usage gauge with 'type' attribute - TODO: Uncomment when token tracking is implemented
-        # token_gauge = meter.create_gauge(
-        #     name="testbench_evaluation_token_usage",
-        #     description="Token usage from RAGAS evaluation",
-        #     unit="",
-        # )
-        #
-        # input_tokens = evaluation_data.total_tokens.get("input_tokens", 0)
-        # token_gauge.set(
-        #     input_tokens,
-        #     {
-        #         "type": "input_tokens",
-        #         "workflow_name": workflow_name,
-        #         "execution_id": execution_id,
-        #         "execution_number": execution_number,
-        #     },
-        # )
-        # logger.info(
-        #     f"testbench_evaluation_token_usage{{type=input_tokens, workflow_name={workflow_name}, execution_id={execution_id}, execution_number={execution_number}}} = {input_tokens}"
-        # )
-        #
-        # output_tokens = evaluation_data.total_tokens.get("output_tokens", 0)
-        # token_gauge.set(
-        #     output_tokens,
-        #     {
-        #         "type": "output_tokens",
-        #         "workflow_name": workflow_name,
-        #         "execution_id": execution_id,
-        #         "execution_number": execution_number,
-        #     },
-        # )
-        # logger.info(
-        #     f"testbench_evaluation_token_usage{{type=output_tokens, workflow_name={workflow_name}, execution_id={execution_id}, execution_number={execution_number}}} = {output_tokens}"
-        # )
-        #
-        # # Total cost gauge
-        # cost_gauge = meter.create_gauge(
-        #     name="testbench_evaluation_cost",
-        #     description="Total cost of RAGAS evaluation in USD",
-        #     unit="",
-        # )
-        # cost_gauge.set(
-        #     evaluation_data.total_cost,
-        #     {"workflow_name": workflow_name, "execution_id": execution_id, "execution_number": execution_number},
-        # )
-        # logger.info(
-        #     f"testbench_evaluation_cost{{workflow_name={workflow_name}, execution_id={execution_id}, execution_number={execution_number}}} = {evaluation_data.total_cost}"
-        # )
+        self._current_step_index += 1
+        return step
 
-        # force_flush() returns True if successful, False otherwise
-        flush_success = provider.force_flush()
-        if flush_success:
-            logger.info("Metrics successfully pushed via OTLP")
-        else:
-            error_msg = f"Failed to flush metrics to OTLP endpoint at {otlp_endpoint}"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
-    except Exception as e:
-        logger.error(f"Error pushing metrics via OTLP: {e}")
-        raise
-    finally:
-        provider.shutdown()
+    async def after_run(self, experiment: EvaluatedExperiment) -> None:  # type: ignore[override]
+        """Flush and shut down the OTel provider."""
+        if self._provider is None:
+            return
+
+        try:
+            flush_success = self._provider.force_flush()
+            if flush_success:
+                logger.info("Metrics successfully pushed via OTLP")
+            else:
+                otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+                error_msg = f"Failed to flush metrics to OTLP endpoint at {otlp_endpoint}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
+        except Exception:
+            logger.exception("Error pushing metrics via OTLP")
+            raise
+        finally:
+            self._provider.shutdown()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def run(self) -> EvaluatedExperiment:
+        """Execute the publish pipeline via ExperimentRuntime."""
+        runtime: ExperimentRuntime[EvaluatedExperiment, EvaluatedExperiment] = ExperimentRuntime(
+            on_step=self.on_step,  # type: ignore[arg-type]
+            input_path=self._input_path,
+            output_path=None,
+            input_model=EvaluatedExperiment,
+            output_model=EvaluatedExperiment,
+            before_run=self.before_run,  # type: ignore[arg-type]
+            before_scenario=self.before_scenario,
+            after_run=self.after_run,  # type: ignore[arg-type]
+        )
+        return await runtime.run()
 
 
 def publish_metrics(input_file: str, workflow_name: str, execution_id: str, execution_number: int) -> None:
-    """
-    Publish evaluation metrics via OpenTelemetry OTLP.
+    """Publish evaluation metrics via OpenTelemetry OTLP.
 
     The OTLP endpoint is read from the OTEL_EXPORTER_OTLP_ENDPOINT environment variable,
     with a default of 'http://localhost:4318' if not set.
 
     Args:
-        input_file: Path to the evaluation scores JSON file
+        input_file: Path to the evaluated experiment JSON file.
         workflow_name: Name of the test workflow (e.g., 'weather-assistant-test').
         execution_id: Testkube execution ID for this workflow run.
-        execution_number: Number of the execution for the current workflow (e.g. 3)
+        execution_number: Number of the execution for the current workflow (e.g. 3).
     """
-    logger.info(f"Loading evaluation data from {input_file}...")
-    evaluation_data = Experiment.load(name="ragas_evaluation", backend=LocalJSONLBackend(root_dir="./data"))
+    logger.info("Loading evaluation data from %s...", input_file)
 
-    if len(evaluation_data) == 0:
-        logger.warning("No evaluation results found. Skipping metrics publishing.")
-        return
-
-    logger.info(f"Publishing metrics for {len(evaluation_data)} samples...")
-    logger.info(f"Workflow: {workflow_name}, Execution: {execution_id}")
-    create_and_push_metrics(evaluation_data, workflow_name, execution_id, execution_number)
+    publisher = MetricsPublisher(
+        input_path=input_file,
+        workflow_name=workflow_name,
+        execution_id=execution_id,
+        execution_number=execution_number,
+    )
+    asyncio.run(publisher.run())
 
 
 if __name__ == "__main__":
-    """
-    Main function to publish metrics via OpenTelemetry OTLP.
-
-    The OTLP endpoint is read from the OTEL_EXPORTER_OTLP_ENDPOINT environment variable,
-    with a default of 'http://localhost:4318' if not set.
-
-    Args:
-        workflow_name: Name of the test workflow
-        execution_id: Testkube execution ID for this workflow run
-        execution_number: Testkube execution number for this workflow run
-
-    Examples:
-            python3 scripts/publish.py weather-assistant-test exec-123 1
-            OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 python3 scripts/publish.py weather-assistant-test exec-123 1
-    """
-
-    parser = argparse.ArgumentParser(description="Publish RAGAS evaluation metrics via OpenTelemetry OTLP")
+    parser = argparse.ArgumentParser(description="Publish evaluation metrics via OpenTelemetry OTLP")
     parser.add_argument(
         "workflow_name",
         help="Name of the test workflow (e.g., 'weather-assistant-test')",
@@ -249,13 +224,18 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "execution_number",
-        help="Testkube execution number for this workflow run (for use as a *numeric* identifier in Grafana)",
+        help="Testkube execution number for this workflow run",
+    )
+    parser.add_argument(
+        "--input",
+        default="data/experiments/evaluated_experiment.json",
+        help="Path to evaluated experiment JSON (default: data/experiments/evaluated_experiment.json)",
     )
 
     args = parser.parse_args()
 
     publish_metrics(
-        input_file="data/experiments/ragas_evaluation.jsonl",
+        input_file=args.input,
         workflow_name=args.workflow_name,
         execution_id=args.execution_id,
         execution_number=args.execution_number,

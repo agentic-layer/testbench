@@ -1,14 +1,36 @@
+"""Generate an HTML visualization dashboard from evaluation results.
+
+Reads an ``EvaluatedExperiment`` JSON file and produces a self-contained
+HTML report with charts, tables, and statistics.
+
+Usage::
+
+    python3 scripts/visualize.py weather-assistant-test exec-001 1
+"""
+
+from __future__ import annotations
+
 import argparse
+import asyncio
 import html
 import json
 import logging
 import math
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from logging import Logger
 from pathlib import Path
 from typing import Any, TypeGuard
+
+from schema.models import (
+    EvaluatedExperiment,
+    EvaluatedScenario,
+    EvaluatedStep,
+    Experiment,
+    Scenario,
+)
+from schema.runtime import ExperimentRuntime
 
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +46,9 @@ class VisualizationData:
     total_tokens: dict[str, int]
     total_cost: float
     metric_names: list[str]
+    default_threshold: float = 0.9
+    pass_count: int = 0
+    fail_count: int = 0
 
 
 def _is_valid_metric_value(value: Any) -> TypeGuard[int | float]:
@@ -43,99 +68,190 @@ def _is_valid_metric_value(value: Any) -> TypeGuard[int | float]:
     return True
 
 
-def load_evaluation_data(file_path: str) -> VisualizationData:
+@dataclass
+class _CollectorState:
+    """Mutable state accumulated during the runtime walk."""
+
+    individual_results: list[dict[str, Any]] = field(default_factory=list)
+    all_metric_scores: dict[str, list[float]] = field(default_factory=dict)
+    metric_names: set[str] = field(default_factory=set)
+    current_trace_id: str = "unknown"
+    default_threshold: float = 0.9
+    pass_count: int = 0
+    fail_count: int = 0
+    current_scenario_name: str = ""
+    current_scenario_index: int = 0
+
+
+class ReportGenerator:
+    """Generate an HTML visualization report using :class:`ExperimentRuntime`.
+
+    Uses the runtime hook pattern to iterate scenarios/steps consistently
+    with the rest of the pipeline.
     """
-    Load ragas_evaluation.jsonl and extract all necessary data.
 
-    Args:
-        file_path: Path to ragas_evaluation.jsonl
+    def __init__(
+        self,
+        input_path: str,
+        output_html_path: str,
+        workflow_name: str,
+        execution_id: str,
+        execution_number: int,
+    ) -> None:
+        self._input_path = input_path
+        self._output_html_path = output_html_path
+        self._workflow_name = workflow_name
+        self._execution_id = execution_id
+        self._execution_number = execution_number
 
-    Returns:
-        VisualizationData container with all evaluation data
+        self._state = _CollectorState()
+        self._llm_as_a_judge_model: str | None = None
 
-    Raises:
-        FileNotFoundError: If file doesn't exist
-        json.JSONDecodeError: If file is not valid JSONL
-    """
-    try:
-        # Read JSONL file (line-delimited JSON)
-        rows = []
-        with open(file_path, "r") as f:
-            for line in f:
-                if line.strip():
-                    rows.append(json.loads(line))
-    except FileNotFoundError:
-        logger.error(f"Input file not found: {file_path}")
-        logger.error("Have you run evaluate.py first to generate ragas_evaluation.jsonl?")
-        raise
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in {file_path}: {e}")
-        raise
+    # ------------------------------------------------------------------
+    # Hooks
+    # ------------------------------------------------------------------
 
-    # Handle empty file
-    if not rows:
-        logger.warning("Empty JSONL file. Returning empty VisualizationData.")
-        return VisualizationData(
-            overall_scores={},
-            individual_results=[],
+    async def before_run(self, experiment: EvaluatedExperiment) -> None:  # type: ignore[override]
+        """Reset collection state and capture experiment-level fields."""
+        self._state = _CollectorState()
+        if isinstance(experiment, Experiment):
+            self._state.default_threshold = experiment.default_threshold
+            self._llm_as_a_judge_model = experiment.llm_as_a_judge_model
+
+    async def before_scenario(self, scenario: Scenario) -> None:
+        """Track the current scenario's trace_id and name."""
+        trace_id = "unknown"
+        if isinstance(scenario, EvaluatedScenario) and scenario.trace_id:
+            trace_id = scenario.trace_id
+        self._state.current_trace_id = trace_id
+        self._state.current_scenario_name = scenario.name
+        self._state.current_scenario_index += 1
+
+    async def on_step(self, step: EvaluatedStep, scenario: Scenario) -> EvaluatedStep:  # type: ignore[override]
+        """Collect step data into flat result dicts."""
+        flat_result: dict[str, Any] = {
+            "user_input": step.input,
+            "step_id": step.id or "unknown",
+            "trace_id": self._state.current_trace_id,
+            "scenario_name": self._state.current_scenario_name,
+        }
+
+        # Add turns if present (for multi-turn conversation rendering)
+        if step.turns:
+            flat_result["turns"] = [
+                {
+                    "content": turn.content,
+                    "type": turn.type,
+                    "tool_calls": [{"name": tc.name, "args": tc.args} for tc in turn.tool_calls]
+                    if turn.tool_calls
+                    else [],
+                }
+                for turn in step.turns
+            ]
+
+        # Add reference if present
+        if step.reference:
+            if step.reference.response:
+                flat_result["reference"] = step.reference.response
+            if step.reference.tool_calls:
+                flat_result["reference_tool_calls"] = [
+                    {"name": tc.name, "args": tc.args} for tc in step.reference.tool_calls
+                ]
+            if step.reference.topics:
+                flat_result["reference_topics"] = step.reference.topics
+
+        # Add custom values if present
+        if step.custom_values:
+            flat_result.update(step.custom_values)
+
+        # Extract metric scores, thresholds, pass/fail, and details
+        if step.evaluations:
+            for evaluation in step.evaluations:
+                metric_name = evaluation.metric.metric_name
+                score = evaluation.result.score
+
+                if score is not None and _is_valid_metric_value(score):
+                    flat_result[metric_name] = score
+
+                    if metric_name not in self._state.all_metric_scores:
+                        self._state.all_metric_scores[metric_name] = []
+                    self._state.all_metric_scores[metric_name].append(score)
+                    self._state.metric_names.add(metric_name)
+
+                # Store per-metric threshold
+                if evaluation.metric.threshold is not None:
+                    flat_result[f"{metric_name}__threshold"] = evaluation.metric.threshold
+
+                # Store pass/fail result
+                if evaluation.result.result is not None:
+                    flat_result[f"{metric_name}__pass"] = evaluation.result.result
+                    if evaluation.result.result == "pass":
+                        self._state.pass_count += 1
+                    else:
+                        self._state.fail_count += 1
+
+                # Store details
+                if evaluation.result.details:
+                    flat_result[f"{metric_name}__details"] = evaluation.result.details
+
+        self._state.individual_results.append(flat_result)
+        return step
+
+    async def after_run(self, experiment: EvaluatedExperiment) -> None:  # type: ignore[override]
+        """Build VisualizationData and generate the HTML report."""
+        # Calculate overall scores as mean of each metric
+        overall_scores: dict[str, float] = {}
+        for metric_name, scores in self._state.all_metric_scores.items():
+            if scores:
+                overall_scores[metric_name] = sum(scores) / len(scores)
+
+        metric_names = sorted(self._state.metric_names)
+
+        viz_data = VisualizationData(
+            overall_scores=overall_scores,
+            individual_results=self._state.individual_results,
             total_tokens={"input_tokens": 0, "output_tokens": 0},
             total_cost=0.0,
-            metric_names=[],
+            metric_names=metric_names,
+            default_threshold=self._state.default_threshold,
+            pass_count=self._state.pass_count,
+            fail_count=self._state.fail_count,
         )
 
-    # Flatten individual_results from nested structure to top-level
-    flattened_results = []
-    for i, row in enumerate(rows):
-        nested_metrics = row.pop("individual_results", {})
+        logger.info("Found %d metrics: %s", len(viz_data.metric_names), ", ".join(viz_data.metric_names))
+        logger.info("Processing %d samples...", len(viz_data.individual_results))
 
-        # Skip rows without individual_results
-        if not nested_metrics:
-            logger.warning(f"Row {i} missing 'individual_results', skipping")
-            continue
+        generate_html_report(
+            viz_data,
+            self._output_html_path,
+            self._workflow_name,
+            self._execution_id,
+            self._execution_number,
+            llm_as_a_judge_model=self._llm_as_a_judge_model,
+        )
 
-        # Merge nested metrics to top level
-        flat_row = {**row, **nested_metrics}
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-        # Ensure trace_id exists
-        if "trace_id" not in flat_row:
-            logger.warning(f"Row {i} missing trace_id, generating placeholder")
-            flat_row["trace_id"] = f"missing-trace-{i}"
+    async def run(self) -> EvaluatedExperiment:
+        """Execute the visualization pipeline via ExperimentRuntime."""
+        runtime: ExperimentRuntime[EvaluatedExperiment, EvaluatedExperiment] = ExperimentRuntime(
+            on_step=self.on_step,  # type: ignore[arg-type]
+            input_path=self._input_path,
+            output_path=None,
+            input_model=EvaluatedExperiment,
+            output_model=EvaluatedExperiment,
+            before_run=self.before_run,  # type: ignore[arg-type]
+            before_scenario=self.before_scenario,
+            after_run=self.after_run,  # type: ignore[arg-type]
+        )
+        return await runtime.run()
 
-        flattened_results.append(flat_row)
 
-    # Discover metric names from flattened results
-    metric_names: set[str] = set()
-    reserved_fields = {
-        "user_input",
-        "response",
-        "retrieved_contexts",
-        "reference",
-        "trace_id",
-        "reference_tool_calls",
-        "sample_hash",
-    }
-
-    for result in flattened_results:
-        for key, value in result.items():
-            if key not in reserved_fields and _is_valid_metric_value(value):
-                metric_names.add(key)
-
-    # Calculate overall_scores as mean of each metric across all rows
-    overall_scores = {}
-    for metric_name in metric_names:
-        scores = [
-            r[metric_name] for r in flattened_results if metric_name in r and _is_valid_metric_value(r[metric_name])
-        ]
-        if scores:
-            overall_scores[metric_name] = sum(scores) / len(scores)
-
-    return VisualizationData(
-        overall_scores=overall_scores,
-        individual_results=flattened_results,
-        total_tokens={"input_tokens": 0, "output_tokens": 0},
-        total_cost=0.0,
-        metric_names=sorted(list(metric_names)),
-    )
+# ---------------------------------------------------------------------------
+# Pure functions (unchanged from original)
+# ---------------------------------------------------------------------------
 
 
 def calculate_metric_statistics(individual_results: list[dict[str, Any]], metric_name: str) -> dict[str, float] | None:
@@ -183,7 +299,7 @@ def _format_multi_turn_conversation(conversation: list[dict[str, Any]]) -> str:
     Format a multi-turn conversation as HTML with support for tool calls.
 
     Args:
-        conversation: List of message dicts with 'content', 'type', and optional 'tool_calls' fields
+        conversation: List of Turn dicts (from step.turns) with 'content', 'type', and optional 'tool_calls' fields
 
     Returns:
         Formatted HTML string
@@ -201,14 +317,14 @@ def _format_multi_turn_conversation(conversation: list[dict[str, Any]]) -> str:
         elif msg_type == "tool":
             css_class = "tool"
             label = "TOOL"
-        else:  # ai
-            css_class = "ai"
-            label = "AI"
+        else:  # agent (or ai for backwards compatibility)
+            css_class = "agent"
+            label = "AGENT"
 
         html_output += f'<div class="message {css_class}">'
         html_output += f"<strong>{label}:</strong> "
 
-        # If AI message has tool calls, display them
+        # If agent message has tool calls, display them
         if tool_calls:
             html_output += '<div class="tool-calls-container">'
             for tool_call in tool_calls:
@@ -217,7 +333,7 @@ def _format_multi_turn_conversation(conversation: list[dict[str, Any]]) -> str:
                 # Format args as JSON for readability
                 args_str = html.escape(json.dumps(tool_args, indent=2))
                 html_output += '<div class="tool-call">'
-                html_output += f'<span class="tool-call-name">→ Tool: {tool_name}</span>'
+                html_output += f'<span class="tool-call-name">\u2192 Tool: {tool_name}</span>'
                 html_output += f'<pre class="tool-call-args">{args_str}</pre>'
                 html_output += "</div>"
             html_output += "</div>"
@@ -234,21 +350,22 @@ def _format_multi_turn_conversation(conversation: list[dict[str, Any]]) -> str:
     return html_output
 
 
-def _is_multi_turn_conversation(user_input: Any) -> bool:
+def _is_multi_turn_conversation(result: dict[str, Any]) -> bool:
     """
-    Check if user_input is a multi-turn conversation.
+    Check if result has multi-turn conversation data (from step.turns).
 
     Args:
-        user_input: The user_input field to check
+        result: The result dict to check
 
     Returns:
-        True if it's a multi-turn conversation (list of message dicts)
+        True if it has turns data (list of Turn dicts)
     """
-    if not isinstance(user_input, list):
+    turns = result.get("turns")
+    if not isinstance(turns, list):
         return False
-    if not user_input:
+    if not turns:
         return False
-    return isinstance(user_input[0], dict) and "content" in user_input[0] and "type" in user_input[0]
+    return isinstance(turns[0], dict) and "content" in turns[0] and "type" in turns[0]
 
 
 def prepare_chart_data(viz_data: VisualizationData) -> dict[str, Any]:
@@ -295,18 +412,41 @@ def prepare_chart_data(viz_data: VisualizationData) -> dict[str, Any]:
         user_input = result.get("user_input", "")
         response = result.get("response", "")
 
-        # Check if user_input is a multi-turn conversation
-        is_multi_turn = _is_multi_turn_conversation(user_input)
+        # Check if result has multi-turn conversation data (from step.turns)
+        is_multi_turn = _is_multi_turn_conversation(result)
 
-        sample = {
+        sample: dict[str, Any] = {
             "index": i + 1,
             "user_input": user_input,
-            "user_input_formatted": _format_multi_turn_conversation(user_input) if is_multi_turn else str(user_input),
+            "user_input_formatted": _format_multi_turn_conversation(result["turns"])
+            if is_multi_turn
+            else str(user_input),
             "response": response,
             "is_multi_turn": is_multi_turn,
+            "turns": result.get("turns", []),  # Include turns for tooltip generation
             "metrics": {metric: result.get(metric) for metric in viz_data.metric_names if metric in result},
             "trace_id": trace_id,
+            "scenario_name": result.get("scenario_name", ""),
         }
+
+        # Propagate per-metric threshold, pass/fail, and details
+        for metric in viz_data.metric_names:
+            threshold_key = f"{metric}__threshold"
+            pass_key = f"{metric}__pass"
+            details_key = f"{metric}__details"
+            if threshold_key in result:
+                sample[threshold_key] = result[threshold_key]
+            if pass_key in result:
+                sample[pass_key] = result[pass_key]
+            if details_key in result:
+                sample[details_key] = result[details_key]
+
+        # Propagate reference tool_calls and topics
+        if "reference_tool_calls" in result:
+            sample["reference_tool_calls"] = result["reference_tool_calls"]
+        if "reference_topics" in result:
+            sample["reference_topics"] = result["reference_topics"]
+
         samples.append(sample)
 
     return {
@@ -315,6 +455,9 @@ def prepare_chart_data(viz_data: VisualizationData) -> dict[str, Any]:
         "samples": samples,
         "tokens": viz_data.total_tokens,
         "cost": viz_data.total_cost,
+        "default_threshold": viz_data.default_threshold,
+        "pass_count": viz_data.pass_count,
+        "fail_count": viz_data.fail_count,
     }
 
 
@@ -607,7 +750,7 @@ tbody td:first-child {
     align-self: flex-start;
 }
 
-.conversation .message.ai {
+.conversation .message.agent {
     background-color: #f3e5f5;
     border-left: 3px solid #9c27b0;
     align-self: flex-end;
@@ -664,6 +807,77 @@ tbody td:first-child {
     text-transform: uppercase;
     color: #666;
     margin-bottom: 4px;
+}
+
+.badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.badge.pass {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.badge.fail {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.scenario-header td {
+    background-color: #e8eaf6;
+    font-weight: bold;
+    font-size: 0.95rem;
+    color: #3949ab;
+    padding: 10px 12px;
+    border-bottom: 2px solid #7986cb;
+}
+
+.reference-details {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: #555;
+}
+
+.reference-details summary {
+    cursor: pointer;
+    color: #667eea;
+    font-weight: 600;
+}
+
+.reference-details pre {
+    background-color: #f5f5f5;
+    padding: 6px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    overflow-x: auto;
+    border: 1px solid #e0e0e0;
+}
+
+.eval-details {
+    margin-top: 4px;
+    font-size: 0.75rem;
+}
+
+.eval-details summary {
+    cursor: pointer;
+    color: #667eea;
+}
+
+.eval-details pre {
+    background-color: #f5f5f5;
+    padding: 6px;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    overflow-x: auto;
+    border: 1px solid #e0e0e0;
+    margin-top: 4px;
 }
 
 .footer {
@@ -745,6 +959,19 @@ def generate_summary_cards_html(chart_data: dict[str, Any]) -> str:
     </div>
 """
 
+    # Pass rate card (only when pass/fail data is available)
+    pass_count = chart_data.get("pass_count", 0)
+    fail_count = chart_data.get("fail_count", 0)
+    total_evaluated = pass_count + fail_count
+    if total_evaluated > 0:
+        pass_rate = pass_count / total_evaluated * 100
+        cards_html += f"""    <div class="card">
+        <h3>Pass Rate</h3>
+        <p class="metric-value">{pass_rate:.1f}%</p>
+        <p class="metric-detail">{pass_count} passed | {fail_count} failed</p>
+    </div>
+"""
+
     cards_html += """</section>
 """
     return cards_html
@@ -767,7 +994,7 @@ def generate_metric_distributions_html(chart_data: dict[str, Any]) -> str:
     if not chart_data["metric_distributions"]:
         return ""
 
-    html = """
+    html_str = """
 <section class="distributions-section">
     <h2>Metric Distributions</h2>
     <div class="distributions-grid">
@@ -775,7 +1002,7 @@ def generate_metric_distributions_html(chart_data: dict[str, Any]) -> str:
 
     for metric_name, dist_data in chart_data["metric_distributions"].items():
         stats = dist_data["stats"]
-        html += f"""
+        html_str += f"""
         <div class="distribution-card">
             <h3>{metric_name}</h3>
             <canvas id="chart-{metric_name}"></canvas>
@@ -788,15 +1015,28 @@ def generate_metric_distributions_html(chart_data: dict[str, Any]) -> str:
         </div>
 """
 
-    html += """
+    html_str += """
     </div>
 </section>
 """
-    return html
+    return html_str
 
 
-def _get_score_class(score: float) -> str:
-    """Get CSS class for score color coding."""
+def _get_score_class(score: float, threshold: float | None = None) -> str:
+    """Get CSS class for score color coding.
+
+    When *threshold* is provided the boundaries are derived from it:
+    ``>= threshold`` → high, ``>= threshold * 0.75`` → medium, else low.
+    Without a threshold the legacy hard-coded 0.8 / 0.5 bands are used.
+    """
+    if threshold is not None:
+        if score >= threshold:
+            return "high"
+        elif score >= threshold * 0.75:
+            return "medium"
+        else:
+            return "low"
+    # Legacy fallback
     if score >= 0.8:
         return "high"
     elif score >= 0.5:
@@ -819,7 +1059,7 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
     has_responses = any(sample.get("response") for sample in chart_data["samples"])
 
     # Generate table header
-    html = """
+    html_str = """
 <section class="table-section">
     <h2>Detailed Results</h2>
     <div class="table-controls">
@@ -835,34 +1075,49 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
 
     # Add Response column header only if there's response data
     if has_responses:
-        html += "                    <th>Response</th>\n"
+        html_str += "                    <th>Response</th>\n"
 
     # Add metric columns
     for metric_name in metric_names:
-        html += f"                    <th>{metric_name}</th>\n"
+        html_str += f"                    <th>{metric_name}</th>\n"
 
-    html += """                    <th>Trace ID</th>
+    html_str += """                    <th>Trace ID</th>
                 </tr>
             </thead>
             <tbody>
 """
 
-    # Generate table rows
+    # Resolve default threshold for score coloring
+    default_threshold = chart_data.get("default_threshold", 0.9)
+
+    # Generate table rows with scenario grouping
+    last_scenario_name = None
     for sample in chart_data["samples"]:
+        # Emit scenario group header on boundary change
+        scenario_name = sample.get("scenario_name", "")
+        if scenario_name and scenario_name != last_scenario_name:
+            col_count = 3 + len(metric_names) + (1 if has_responses else 0)
+            html_str += (
+                f'                <tr class="scenario-header">'
+                f'<td colspan="{col_count}">{html.escape(scenario_name)}</td></tr>\n'
+            )
+            last_scenario_name = scenario_name
+
         # Use formatted HTML for multi-turn conversations
         user_input_display = sample.get("user_input_formatted", sample["user_input"])
 
         # For tooltips and search, we need plain text version
         if sample.get("is_multi_turn"):
-            conversation = sample["user_input"]
+            # Get turns from sample (already included)
+            turns = sample.get("turns", [])
             tooltip_parts = []
-            for msg in conversation:
+            for msg in turns:
                 msg_type = msg.get("type", "unknown")
                 content = msg.get("content", "")
                 tool_calls = msg.get("tool_calls", [])
 
                 if tool_calls:
-                    # For AI messages with tool calls, show tool names
+                    # For agent messages with tool calls, show tool names
                     tool_names = ", ".join([tc.get("name", "unknown") for tc in tool_calls])
                     tooltip_parts.append(f"{msg_type}: [calls: {tool_names}]")
                 elif content:
@@ -877,35 +1132,70 @@ def generate_samples_table_html(chart_data: dict[str, Any]) -> str:
         else:
             tooltip_text = str(sample["user_input"])
 
-        html += f"""                <tr>
+        # Build reference details section
+        ref_details_html = ""
+        ref_response = sample.get("response", "")
+        ref_tool_calls = sample.get("reference_tool_calls")
+        ref_topics = sample.get("reference_topics")
+        if ref_tool_calls or ref_topics:
+            ref_details_html = '<details class="reference-details"><summary>Reference details</summary>'
+            if ref_response:
+                ref_details_html += f"<p><strong>Response:</strong> {html.escape(str(ref_response))}</p>"
+            if ref_tool_calls:
+                tc_json = html.escape(json.dumps(ref_tool_calls, indent=2))
+                ref_details_html += f"<p><strong>Expected tool calls:</strong></p><pre>{tc_json}</pre>"
+            if ref_topics:
+                ref_details_html += f"<p><strong>Expected topics:</strong> {html.escape(', '.join(ref_topics))}</p>"
+            ref_details_html += "</details>"
+
+        html_str += f"""                <tr>
                     <td>{sample["index"]}</td>
-                    <td class="user-input-cell" title="{tooltip_text}">{user_input_display}</td>
+                    <td class="user-input-cell" title="{tooltip_text}">{user_input_display}{ref_details_html}</td>
 """
 
         # Add response cell only if we have response data
         if has_responses:
             response = sample.get("response", "")
-            html += f'                    <td class="response-cell" title="{response}">{response}</td>\n'
+            html_str += f'                    <td class="response-cell" title="{response}">{response}</td>\n'
 
-        # Add metric values
+        # Add metric values with threshold-aware coloring and pass/fail badges
         for metric_name in metric_names:
             score = sample["metrics"].get(metric_name)
             if _is_valid_metric_value(score):
-                score_class = _get_score_class(float(score))
-                html += f'                    <td><span class="metric-score {score_class}">{score:.3f}</span></td>\n'
-            else:
-                html += "                    <td>N/A</td>\n"
+                # Resolve threshold: per-metric → default
+                metric_threshold = sample.get(f"{metric_name}__threshold", default_threshold)
+                score_class = _get_score_class(float(score), threshold=metric_threshold)
+                cell_html = f'<span class="metric-score {score_class}">{score:.3f}</span>'
 
-        html += f"""                    <td class="trace-id">{sample["trace_id"]}</td>
+                # Pass/fail badge
+                pass_result = sample.get(f"{metric_name}__pass")
+                if pass_result is not None:
+                    badge_class = "pass" if pass_result == "pass" else "fail"  # nosec B105
+                    badge_label = "PASS" if pass_result == "pass" else "FAIL"  # nosec B105
+                    cell_html += f' <span class="badge {badge_class}">{badge_label}</span>'
+
+                # Details collapsible
+                details = sample.get(f"{metric_name}__details")
+                if details:
+                    details_json = html.escape(json.dumps(details, indent=2))
+                    cell_html += (
+                        f'<details class="eval-details"><summary>details</summary><pre>{details_json}</pre></details>'
+                    )
+
+                html_str += f"                    <td>{cell_html}</td>\n"
+            else:
+                html_str += "                    <td>N/A</td>\n"
+
+        html_str += f"""                    <td class="trace-id">{sample["trace_id"]}</td>
                 </tr>
 """
 
-    html += """            </tbody>
+    html_str += """            </tbody>
         </table>
     </div>
 </section>
 """
-    return html
+    return html_str
 
 
 def generate_javascript(chart_data: dict[str, Any]) -> str:
@@ -1057,6 +1347,8 @@ def generate_html_report(
     workflow_name: str,
     execution_id: str,
     execution_number: int,
+    *,
+    llm_as_a_judge_model: str | None = None,
 ) -> None:
     """
     Generate complete self-contained HTML file.
@@ -1067,6 +1359,7 @@ def generate_html_report(
         workflow_name: Name of the test workflow
         execution_id: Testkube execution ID for this workflow run
         execution_number: Testkube execution number for this workflow run
+        llm_as_a_judge_model: Optional LLM model name used for evaluation
     """
     # Ensure output directory exists
     output_path = Path(output_file)
@@ -1081,8 +1374,15 @@ def generate_html_report(
     # Generate timestamp
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
+    # Optional model info line
+    model_info = ""
+    if llm_as_a_judge_model:
+        model_info = (
+            f'            <p class="workflow-info">LLM-as-a-Judge Model: {html.escape(llm_as_a_judge_model)}</p>'
+        )
+
     # Build complete HTML
-    html = f"""<!DOCTYPE html>
+    html_str = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1099,6 +1399,7 @@ def generate_html_report(
         <div class="metadata">
             <p class="timestamp">Generated: {timestamp}</p>
             <p class="workflow-info">Workflow: {workflow_name} | Execution: {execution_number} | ID: {execution_id}</p>
+{model_info}
         </div>
     </header>
 
@@ -1123,7 +1424,7 @@ def generate_html_report(
 
     # Write to file
     with open(output_file, "w") as f:
-        f.write(html)
+        f.write(html_str)
 
     logger.info(f"Report saved to: {output_file}")
 
@@ -1139,27 +1440,30 @@ def main(
     Main function to generate HTML visualization.
 
     Args:
-        input_file: Path to ragas_evaluation.jsonl
+        input_file: Path to evaluated_experiment.json
         output_file: Path to output HTML file
         workflow_name: Name of the test workflow
         execution_id: Testkube execution ID for this workflow run
         execution_number: Testkube execution number for this workflow run
     """
-    logger.info(f"Loading evaluation data from {input_file}...")
-    viz_data = load_evaluation_data(input_file)
+    logger.info("Loading evaluation data from %s...", input_file)
+    logger.info("Workflow: %s, Execution: %s", workflow_name, execution_id)
 
-    logger.info(f"Found {len(viz_data.metric_names)} metrics: {', '.join(viz_data.metric_names)}")
-    logger.info(f"Processing {len(viz_data.individual_results)} samples...")
-    logger.info(f"Workflow: {workflow_name}, Execution: {execution_id}")
+    generator = ReportGenerator(
+        input_path=input_file,
+        output_html_path=output_file,
+        workflow_name=workflow_name,
+        execution_id=execution_id,
+        execution_number=execution_number,
+    )
+    asyncio.run(generator.run())
 
-    generate_html_report(viz_data, output_file, workflow_name, execution_id, execution_number)
-
-    logger.info(f"HTML report generated successfully: {output_file}")
+    logger.info("HTML report generated successfully: %s", output_file)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate HTML dashboard from RAGAS evaluation results",
+        description="Generate HTML dashboard from testbench evaluation results",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -1196,8 +1500,8 @@ Examples:
     parser.add_argument(
         "--input",
         type=str,
-        default="data/experiments/ragas_evaluation.jsonl",
-        help="Path to ragas_evaluation.jsonl file (default: data/experiments/ragas_evaluation.jsonl)",
+        default="data/experiments/evaluated_experiment.json",
+        help="Path to evaluated_experiment.json file (default: data/experiments/evaluated_experiment.json)",
     )
 
     parser.add_argument(

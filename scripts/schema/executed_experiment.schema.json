@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Testbench Experiment",
+  "description": "Schema for defining experiments to evaluate agent responses.",
+  "type": "object",
+  "required": ["scenarios"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the experiment."
+    },
+    "llm_as_a_judge_model": {
+      "type": "string",
+      "description": "The specific LLM used to grade responses (e.g., 'gpt-4o', 'gemini-1.5-pro')."
+    },
+    "default_threshold": {
+      "type": "number",
+      "default": 0.9,
+      "minimum": 0,
+      "maximum": 1,
+      "description": "The fallback threshold used across all evaluations if not specified at the metric level."
+    },
+    "scenarios": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/scenario" }
+    }
+  },
+  "definitions": {
+    "scenario": {
+      "type": "object",
+      "required": ["name", "steps"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the scenario."
+        },
+        "trace_id": {
+          "type": "string",
+          "description": "Trace identifier linking to the execution trace of this scenario."
+        },
+        "name": { "type": "string" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/step" }
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["input"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the step."
+        },
+        "input": {
+          "type": "string",
+          "description": "User input to the agent at this step."
+        },
+        "turns": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/definitions/turn" }
+        },
+        "reference": { "$ref": "common.schema.json#/definitions/reference" },
+        "custom_values": {
+          "type": "object",
+          "description": "Additional key-value pairs to include in the test results for this step."
+        },
+        "metrics": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/definitions/metric" },
+          "description": "List of metric configurations to evaluate this step."
+        }
+      }
+    }
+  }
+}

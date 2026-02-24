@@ -4,11 +4,11 @@ Your release is named: {{ .Release.Name }}
 Installed in namespace: {{ include "testbench.namespace" . }}
 
 TestWorkflow Templates have been created:
-  - ragas-setup-template
-  - ragas-run-template
-  - ragas-evaluate-template
-  - ragas-publish-template
-  - ragas-visualize-template
+  - setup-template
+  - run-template
+  - evaluate-template
+  - publish-template
+  - visualize-template
 
 To view the templates:
   kubectl get testworkflowtemplates -n {{ include "testbench.namespace" . }}

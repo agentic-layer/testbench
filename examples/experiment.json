@@ -1,0 +1,140 @@
+{
+  "llm_as_a_judge_model": "gemini-2.5-flash-lite",
+  "default_threshold": 0.9,
+  "scenarios": [
+    {
+      "name": "Weather in New York",
+      "steps": [
+        {
+          "input": "What is the weather like in New York right now?",
+          "reference": {
+            "tool_calls": [
+              {
+                "name": "get_weather",
+                "args": {
+                  "city": "New York"
+                }
+              }
+            ],
+            "topics": [
+              "weather"
+            ]
+          },
+          "metrics": [
+            {
+              "metric_name": "AgentGoalAccuracyWithoutReference"
+            },
+            {
+              "metric_name": "ToolCallAccuracy"
+            },
+            {
+              "metric_name": "TopicAdherence",
+              "parameters": {
+                "mode": "precision"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Weather in Bangkok (unavailable)",
+      "steps": [
+        {
+          "input": "What is the weather like in Bangkok right now?",
+          "reference": {
+            "tool_calls": [
+              {
+                "name": "get_weather",
+                "args": {
+                  "city": "New York"
+                }
+              }
+            ]
+          },
+          "metrics": [
+            {
+              "metric_name": "AgentGoalAccuracyWithoutReference"
+            },
+            {
+              "metric_name": "ToolCallAccuracy"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Weather in New York (alt reference)",
+      "steps": [
+        {
+          "input": "What is the weather like in New York right now?",
+          "reference": {
+            "tool_calls": [
+              {
+                "name": "get_current_time",
+                "args": {
+                  "city": "New York"
+                }
+              }
+            ]
+          },
+          "metrics": [
+            {
+              "metric_name": "AgentGoalAccuracyWithoutReference"
+            },
+            {
+              "metric_name": "ToolCallAccuracy"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Weather then time in New York (multi-step)",
+      "steps": [
+        {
+          "input": "What is the weather like in New York right now?",
+          "reference": {
+            "tool_calls": [
+              {
+                "name": "get_weather",
+                "args": {
+                  "city": "New York"
+                }
+              }
+            ]
+          },
+          "metrics": [
+            {
+              "metric_name": "AgentGoalAccuracyWithoutReference"
+            },
+            {
+              "metric_name": "ToolCallAccuracy"
+            }
+          ]
+        },
+        {
+          "input": "What time is it in New York?",
+          "reference": {
+            "tool_calls": [
+              {
+                "name": "get_current_time",
+                "args": {
+                  "city": "New York"
+                }
+              }
+            ]
+          },
+          "metrics": [
+            {
+              "metric_name": "AgentGoalAccuracyWithoutReference"
+            },
+            {
+              "metric_name": "ToolCallAccuracy"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
