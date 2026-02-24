@@ -262,7 +262,9 @@ async def test_executor_before_scenario_creates_span():
         mock_span.set_attribute.assert_any_call("scenario.name", "Test Scenario")
         mock_span.set_attribute.assert_any_call("workflow.name", "test-workflow")
         mock_span.set_attribute.assert_any_call("agent.url", "http://test-agent:8000")
-        mock_span.end.assert_called_once()
+        # Span stays open until after_scenario ends it
+        mock_span.end.assert_not_called()
+        assert executor._scenario_span is mock_span
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +285,9 @@ async def test_executor_after_scenario_sets_metadata():
     # Set up state
     executor._current_scenario_id = "scn_abc123"
     executor._current_trace_id = "trace_xyz789"
+    mock_span = MagicMock()
+    executor._scenario_span = mock_span
+    executor._span_token = MagicMock()
 
     original = Scenario(name="Test Scenario", steps=[])
     executed = ExecutedScenario(name="Test Scenario", steps=[])
@@ -292,6 +297,10 @@ async def test_executor_after_scenario_sets_metadata():
     # Verify metadata was set
     assert executed.id == "scn_abc123"
     assert executed.trace_id == "trace_xyz789"
+    # Verify span was ended and context detached
+    mock_span.end.assert_called_once()
+    assert executor._scenario_span is None
+    assert executor._span_token is None
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import hashlib
 import logging
 
 import httpx
+from opentelemetry import context as context_api
 from opentelemetry import trace
 from otel_setup import setup_otel
 from schema.a2a_client import A2AStepClient
@@ -55,6 +56,8 @@ class A2AExecutor:
         # Per-scenario mutable state, reset in before_scenario
         self._context_id: str | None = None
         self._current_trace_id: str | None = None
+        self._scenario_span: trace.Span | None = None
+        self._span_token: context_api.context.Token[context_api.context.Context] | None = None
 
         # Deterministic ID state
         self._current_scenario_id: str = ""
@@ -78,19 +81,21 @@ class A2AExecutor:
         scenario_id = _content_hash(f"{self.workflow_name}:{scenario.name}", prefix="scn_")
         self._current_scenario_id = scenario_id
 
-        # We cannot hold a span open across awaits easily, so we record
-        # the trace_id from a short-lived span that acts as the scenario root.
-        span = self._tracer.start_span(f"scenario: {scenario.name}")
-        span_context = span.get_span_context()
+        # Start a scenario span and attach it as the active context so that
+        # instrumented HTTPX calls during on_step become children of this span.
+        self._scenario_span = self._tracer.start_span(f"scenario: {scenario.name}")
+        ctx = trace.set_span_in_context(self._scenario_span)
+        self._span_token = context_api.attach(ctx)
+
+        span_context = self._scenario_span.get_span_context()
         trace_id = format(span_context.trace_id, "032x")
         self._current_trace_id = trace_id
 
-        span.set_attribute("scenario.name", scenario.name)
-        span.set_attribute("scenario.id", scenario_id)
-        span.set_attribute("workflow.name", self.workflow_name)
-        span.set_attribute("agent.url", self.agent_url)
-        span.set_attribute("scenario.step_count", len(scenario.steps))
-        span.end()
+        self._scenario_span.set_attribute("scenario.name", scenario.name)
+        self._scenario_span.set_attribute("scenario.id", scenario_id)
+        self._scenario_span.set_attribute("workflow.name", self.workflow_name)
+        self._scenario_span.set_attribute("agent.url", self.agent_url)
+        self._scenario_span.set_attribute("scenario.step_count", len(scenario.steps))
 
         logger.info("Scenario '%s' started (id=%s, trace_id=%s)", scenario.name, scenario_id, trace_id)
 
@@ -118,9 +123,18 @@ class A2AExecutor:
         )
 
     async def after_scenario(self, original: Scenario, executed: ExecutedScenario) -> None:
-        """Log scenario completion and finalize collected steps."""
+        """Log scenario completion, end the scenario span, and detach context."""
         executed.id = self._current_scenario_id
         executed.trace_id = self._current_trace_id
+
+        # Detach the scenario context and end the span so child spans are properly nested
+        if self._span_token is not None:
+            context_api.detach(self._span_token)
+            self._span_token = None
+        if self._scenario_span is not None:
+            self._scenario_span.end()
+            self._scenario_span = None
+
         logger.info("Scenario '%s' completed (%d steps)", original.name, len(executed.steps))
 
     # ------------------------------------------------------------------

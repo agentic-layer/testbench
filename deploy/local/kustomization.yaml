@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - lgtm/
   - otel-config.yaml
+  - otel-config-agent.yaml
   - weather-agent.yaml
   - experiment.yaml
   - example-workflow.yaml
