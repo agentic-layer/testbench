@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "id": null,
+  "id": 4,
   "links": [
     {
       "asDropdown": false,
@@ -37,7 +37,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "Number of distinct scenarios in this execution.",
       "fieldConfig": {
@@ -51,7 +51,7 @@
             "steps": [
               {
                 "color": "blue",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -70,6 +70,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -77,17 +78,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count(count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1h])))",
+          "expr": "count(count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[$__range])))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -100,7 +104,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "Percentage of evaluations that passed.",
       "fieldConfig": {
@@ -117,7 +121,7 @@
             "steps": [
               {
                 "color": "red",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -145,6 +149,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -152,17 +157,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "100 * count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"pass\"}[1h])) / count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1h]))",
+          "expr": "100 * count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"pass\"}[$__range])) / count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[$__range]))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -175,7 +183,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "Average evaluation score across all steps.",
       "fieldConfig": {
@@ -192,7 +200,7 @@
             "steps": [
               {
                 "color": "red",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -219,6 +227,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -226,17 +235,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "avg(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1h]))",
+          "expr": "avg(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[$__range]))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -249,7 +261,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "Number of evaluations that failed their threshold.",
       "fieldConfig": {
@@ -263,7 +275,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -286,6 +298,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -293,17 +306,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"fail\"}[1h])) or vector(0)",
+          "expr": "count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"fail\"}[$__range])) or vector(0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -316,7 +332,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "Total number of evaluations in this execution.",
       "fieldConfig": {
@@ -330,7 +346,7 @@
             "steps": [
               {
                 "color": "blue",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -349,6 +365,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -356,17 +373,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1h]))",
+          "expr": "count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[$__range]))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -379,7 +399,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "Number of distinct metrics evaluated.",
       "fieldConfig": {
@@ -393,7 +413,7 @@
             "steps": [
               {
                 "color": "purple",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -412,6 +432,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -419,17 +440,20 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count(count by(name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1h])))",
+          "expr": "count(count by(name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[$__range])))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -442,7 +466,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "Pass rate per scenario for this execution.",
       "fieldConfig": {
@@ -459,7 +483,7 @@
             "steps": [
               {
                 "color": "red",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -484,6 +508,12 @@
       "id": 7,
       "options": {
         "displayMode": "gradient",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
         "maxVizHeight": 100,
         "minVizHeight": 30,
         "minVizWidth": 75,
@@ -501,15 +531,16 @@
         "text": {},
         "valueMode": "text"
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "100 * (count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"pass\"}[1h])) or (0 * count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1h])))) / count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1h]))",
+          "expr": "100 * (count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"pass\"}[$__range])) or (0 * count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[$__range])))) / count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[$__range]))",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{scenario_name}}",
@@ -523,7 +554,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "Evaluations that failed their threshold. Click trace link to debug in Tempo.",
       "fieldConfig": {
@@ -536,6 +567,9 @@
             "cellOptions": {
               "type": "auto"
             },
+            "footer": {
+              "reducers": []
+            },
             "inspect": false
           },
           "mappings": [],
@@ -544,7 +578,7 @@
             "steps": [
               {
                 "color": "red",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -560,9 +594,9 @@
                 "id": "links",
                 "value": [
                   {
+                    "targetBlank": true,
                     "title": "View Trace in Tempo",
-                    "url": "/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceql%22,%22query%22:%22${__data.fields.trace_id}%22%7D%5D%7D",
-                    "targetBlank": true
+                    "url": "/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceql%22,%22query%22:%22${__data.fields.trace_id}%22%7D%5D%7D"
                   }
                 ]
               },
@@ -614,7 +648,7 @@
                   "steps": [
                     {
                       "color": "red",
-                      "value": null
+                      "value": 0
                     },
                     {
                       "color": "yellow",
@@ -640,15 +674,7 @@
       "id": 8,
       "options": {
         "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "enablePagination": true,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
+        "enablePagination": true,
         "showHeader": true,
         "sortBy": [
           {
@@ -657,15 +683,16 @@
           }
         ]
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"fail\"}[1h])",
+          "expr": "last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"fail\"}[$__range])",
           "format": "table",
           "instant": true,
           "range": false,
@@ -692,10 +719,10 @@
               "workflow_name": true
             },
             "indexByName": {
+              "Value": 3,
+              "name": 2,
               "scenario_name": 0,
               "step_index": 1,
-              "name": 2,
-              "Value": 3,
               "threshold": 4,
               "trace_id": 5
             },
@@ -714,7 +741,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "description": "All evaluation results for this execution.",
       "fieldConfig": {
@@ -727,6 +754,9 @@
             "cellOptions": {
               "type": "auto"
             },
+            "footer": {
+              "reducers": []
+            },
             "inspect": false
           },
           "mappings": [],
@@ -735,7 +765,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -752,15 +782,15 @@
                 "value": [
                   {
                     "options": {
-                      "pass": {
-                        "color": "green",
-                        "index": 0,
-                        "text": "PASS"
-                      },
                       "fail": {
                         "color": "red",
                         "index": 1,
                         "text": "FAIL"
+                      },
+                      "pass": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "PASS"
                       }
                     },
                     "type": "value"
@@ -786,9 +816,9 @@
                 "id": "links",
                 "value": [
                   {
+                    "targetBlank": true,
                     "title": "View Trace in Tempo",
-                    "url": "/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceql%22,%22query%22:%22${__data.fields.trace_id}%22%7D%5D%7D",
-                    "targetBlank": true
+                    "url": "/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceql%22,%22query%22:%22${__data.fields.trace_id}%22%7D%5D%7D"
                   }
                 ]
               },
@@ -834,7 +864,7 @@
                   "steps": [
                     {
                       "color": "red",
-                      "value": null
+                      "value": 0
                     },
                     {
                       "color": "yellow",
@@ -860,15 +890,7 @@
       "id": 9,
       "options": {
         "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "enablePagination": true,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
+        "enablePagination": true,
         "showHeader": true,
         "sortBy": [
           {
@@ -877,15 +899,16 @@
           }
         ]
       },
+      "pluginVersion": "12.3.1",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1h])",
+          "expr": "last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[$__range])",
           "format": "table",
           "instant": true,
           "range": false,
@@ -911,11 +934,11 @@
               "workflow_name": true
             },
             "indexByName": {
-              "scenario_name": 0,
-              "step_index": 1,
+              "Value": 4,
               "name": 2,
               "result": 3,
-              "Value": 4,
+              "scenario_name": 0,
+              "step_index": 1,
               "threshold": 5,
               "trace_id": 6
             },
@@ -941,9 +964,33 @@
   "templating": {
     "list": [
       {
-        "current": {},
+        "current": {
+          "text": "Mimir",
+          "value": "prometheus"
+        },
+        "description": "Prometheus datasource",
+        "includeAll": false,
+        "label": "Data Source",
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
         "definition": "label_values(testbench_evaluation_metric, workflow_name)",
         "description": "Name of the test workflow",
+        "includeAll": true,
         "label": "Workflow",
         "name": "workflow",
         "options": [],
@@ -958,7 +1005,14 @@
         "type": "query"
       },
       {
-        "current": {},
+        "current": {
+          "text": "699f086e13bc632ee0431b19",
+          "value": "699f086e13bc632ee0431b19"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
         "definition": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\"}, execution_id)",
         "description": "Execution ID to inspect",
         "label": "Execution",
@@ -979,6 +1033,10 @@
         "current": {
           "text": "All",
           "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
         },
         "definition": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\"}, scenario_name)",
         "description": "Filter by scenario",
@@ -1007,5 +1065,5 @@
   "timezone": "browser",
   "title": "Execution Details",
   "uid": "testbench-exec-details",
-  "version": 1
+  "version": 3
 }
