@@ -1,0 +1,32 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - testbench.agentic-layer.ai
+  resources:
+  - experiments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testbench.agentic-layer.ai
+  resources:
+  - experiments/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testbench.agentic-layer.ai
+  resources:
+  - experiments/status
+  verbs:
+  - get
+  - patch
+  - update
