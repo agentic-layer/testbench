@@ -1,0 +1,100 @@
+= Install the Testbench
+
+This guide walks you through installing the Testbench Helm chart into an existing Kubernetes cluster with Testkube.
+
+== Prerequisites
+
+* A running Kubernetes cluster with `kubectl` configured
+* https://helm.sh/docs/intro/install/[Helm] installed
+* https://testkube.io/[Testkube] installed in the `testkube` namespace
+
+== Step 1: Install the Helm chart
+
+Install the Testbench chart from the OCI registry:
+
+[source,shell]
+----
+helm upgrade --install testbench \
+  oci://ghcr.io/agentic-layer/charts/testbench \
+  --namespace testkube \
+  --version <version>
+----
+
+This installs the `TestWorkflowTemplate` CRs and an optional Grafana dashboard ConfigMap into the `testkube` namespace.
+
+IMPORTANT: The Testbench must be installed into the `testkube` namespace because the `TestWorkflowTemplate` resources need to be co-located with the Testkube controller that orchestrates them.
+
+== Step 2: Override default values (optional)
+
+You can customise the installation by passing `--set` flags or a values file. The following table lists all available values:
+
+[cols="3,2,5"]
+|===
+| Value | Default | Description
+
+| `image.repository`
+| `ghcr.io/agentic-layer/testbench/testworkflows`
+| Container image used by all pipeline phases
+
+| `image.tag`
+| Chart `appVersion`
+| Image tag override
+
+| `image.pullPolicy`
+| `IfNotPresent`
+| Kubernetes image pull policy
+
+| `grafana.dashboardConfigMapName`
+| `grafana-testkube-dashboard`
+| Name of the ConfigMap containing the Grafana dashboard JSON
+
+| `grafana.dashboardNamespace`
+| `monitoring`
+| Namespace where the Grafana dashboard ConfigMap is created
+|===
+
+Example with overrides:
+
+[source,shell]
+----
+helm install testbench oci://ghcr.io/agentic-layer/testbench/chart \
+  -n testkube \
+  --set image.tag=v1.2.0 \
+  --set grafana.dashboardNamespace=observability
+----
+
+== Step 3: Verify the installation
+
+Confirm that all five `TestWorkflowTemplate` resources are present:
+
+[source,shell]
+----
+kubectl get testworkflowtemplates -n testkube
+----
+
+Expected output:
+
+[source]
+----
+NAME                 AGE
+setup-template       10s
+run-template         10s
+evaluate-template    10s
+publish-template     10s
+visualize-template   10s
+----
+
+== Step 4: Verify Grafana dashboards (optional)
+
+If you use Grafana with a sidecar that watches for dashboard ConfigMaps, verify the dashboard was created:
+
+[source,shell]
+----
+kubectl get configmap grafana-testkube-dashboard -n monitoring
+----
+
+NOTE: The Grafana sidecar must be configured to watch ConfigMaps with the label `grafana_dashboard: "1"` in the target namespace. Refer to your Grafana deployment documentation for sidecar configuration details.
+
+== Next steps
+
+With the Testbench installed, proceed to xref:testbench:how-to/first-workflow.adoc[Create Your First TestWorkflow] to define an experiment and run it against an agent.
