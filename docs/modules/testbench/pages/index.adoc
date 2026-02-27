@@ -1,4 +1,0 @@
-= Architecture
-
-include::testbench:partial$nav.adoc[]
-

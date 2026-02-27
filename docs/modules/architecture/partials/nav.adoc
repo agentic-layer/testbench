@@ -1,0 +1,6 @@
+* xref:testbench:architecture:introduction/index.adoc[Introduction and Goals]
+* xref:testbench:architecture:context/index.adoc[System Scope and Context]
+* xref:testbench:architecture:building-blocks/index.adoc[Building Block View]
+* xref:testbench:architecture:deployment-view/index.adoc[Deployment View]
+* xref:testbench:architecture:crosscutting/index.adoc[Cross-cutting Concepts]
+* xref:testbench:architecture:glossary/index.adoc[Glossary]

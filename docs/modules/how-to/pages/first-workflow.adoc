@@ -4,7 +4,7 @@ This guide walks you through defining an experiment, creating a TestWorkflow, an
 
 == Prerequisites
 
-* Testbench installed (see xref:testbench:how-to/install.adoc[Install the Testbench])
+* Testbench installed (see xref:testbench:how-to:install.adoc[Install the Testbench])
 * An agent with an A2A protocol endpoint deployed in the cluster
 * An AI Gateway deployed in your cluster
 * An OTLP collector endpoint reachable from the `testkube` namespace
@@ -204,7 +204,7 @@ kubectl testkube get testworkflow example-workflow-1
 
 === Grafana dashboards
 
-If you installed the Grafana dashboard ConfigMap (see xref:testbench:how-to/install.adoc[Install the Testbench]), open Grafana and look for the **Testkube Evaluation** dashboard. It displays per-metric scores filtered by workflow name.
+If you installed the Grafana dashboard ConfigMap (see xref:testbench:how-to:install.adoc[Install the Testbench]), open Grafana and look for the **Testkube Evaluation** dashboard. It displays per-metric scores filtered by workflow name.
 
 === HTML report artifact
 
@@ -338,5 +338,5 @@ Each step within the scenario is sent sequentially to the agent. The agent recei
 
 == Next steps
 
-* Learn about the internal data flow and evaluation architecture in xref:testbench:building-blocks/index.adoc[Building Block View]
-* Explore cross-cutting concerns like tracing and observability in xref:testbench:crosscutting/index.adoc[Cross-cutting Concepts]
+* Learn about the internal data flow and evaluation architecture in xref:testbench:architecture:building-blocks/index.adoc[Building Block View]
+* Explore cross-cutting concerns like tracing and observability in xref:testbench:architecture:crosscutting/index.adoc[Cross-cutting Concepts]

@@ -97,4 +97,4 @@ NOTE: The Grafana sidecar must be configured to watch ConfigMaps with the label 
 
 == Next steps
 
-With the Testbench installed, proceed to xref:testbench:how-to/first-workflow.adoc[Create Your First TestWorkflow] to define an experiment and run it against an agent.
+With the Testbench installed, proceed to xref:testbench:how-to:first-workflow.adoc[Create Your First TestWorkflow] to define an experiment and run it against an agent.
