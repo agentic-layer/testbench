@@ -1,0 +1,21 @@
+apiVersion: testbench.agentic-layer.ai/v1alpha1
+kind: Experiment
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: experiment-sample
+spec:
+  agentRef:
+    name: weather-agent
+    namespace: sample-agents
+  llmAsAJudgeModel: gemini-2.5-flash-lite
+  defaultThreshold: 0.9
+  dataset:
+    s3:
+      bucket: testbench
+      key: dataset.csv
+  trigger:
+    enabled: true
+    event: on_push
+    concurrencyPolicy: Forbid
