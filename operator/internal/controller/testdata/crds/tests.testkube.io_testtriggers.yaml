@@ -1,0 +1,21 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: testtriggers.tests.testkube.io
+spec:
+  group: tests.testkube.io
+  names:
+    kind: TestTrigger
+    listKind: TestTriggerList
+    plural: testtriggers
+    singular: testtrigger
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true

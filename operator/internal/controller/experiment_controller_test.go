@@ -18,67 +18,589 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	testbenchv1alpha1 "github.com/agentic-layer/testbench/operator/api/v1alpha1"
 )
 
 var _ = Describe("Experiment Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	const namespace = "default"
+	ctx := context.Background()
 
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+	newReconciler := func() *ExperimentReconciler {
+		return &ExperimentReconciler{
+			Client: k8sClient,
+			Scheme: k8sClient.Scheme(),
 		}
-		experiment := &testbenchv1alpha1.Experiment{}
+	}
+
+	reconcileExperiment := func(name string) error {
+		_, err := newReconciler().Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: name, Namespace: namespace},
+		})
+		return err
+	}
+
+	cleanupExperiment := func(name string) {
+		exp := &testbenchv1alpha1.Experiment{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, exp); err == nil {
+			_ = k8sClient.Delete(ctx, exp)
+		}
+		cm := &corev1.ConfigMap{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cm); err == nil {
+			_ = k8sClient.Delete(ctx, cm)
+		}
+		wf := &unstructured.Unstructured{}
+		wf.SetGroupVersionKind(testWorkflowGVK)
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, wf); err == nil {
+			_ = k8sClient.Delete(ctx, wf)
+		}
+		trig := &unstructured.Unstructured{}
+		trig.SetGroupVersionKind(testTriggerGVK)
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-trigger", Namespace: namespace}, trig); err == nil {
+			_ = k8sClient.Delete(ctx, trig)
+		}
+	}
+
+	Context("Scenarios mode reconciliation", func() {
+		const expName = "exp-scenarios"
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind Experiment")
-			err := k8sClient.Get(ctx, typeNamespacedName, experiment)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &testbenchv1alpha1.Experiment{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+			By("creating the Experiment with inline scenarios")
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef:         testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
+					LLMAsAJudgeModel: "gemini-2.5-flash-lite",
+					DefaultThreshold: 0.9,
+					Scenarios: []testbenchv1alpha1.Scenario{
+						{
+							Name: "test scenario",
+							Steps: []testbenchv1alpha1.Step{
+								{
+									Input: "What is the weather?",
+									Reference: &testbenchv1alpha1.Reference{
+										Response: "It is sunny",
+										Topics:   []string{"weather"},
+										ToolCalls: []testbenchv1alpha1.ToolCall{
+											{
+												Name: "get_weather",
+												Args: runtime.RawExtension{Raw: []byte(`{"city":"NY"}`)},
+											},
+										},
+									},
+									Metrics: []testbenchv1alpha1.Metric{
+										{MetricName: "AgentGoalAccuracy"},
+									},
+								},
+							},
+						},
 					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+				},
 			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &testbenchv1alpha1.Experiment{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance Experiment")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			cleanupExperiment(expName)
 		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &ExperimentReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
+		It("should create a ConfigMap with experiment.json", func() {
+			By("reconciling the Experiment")
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			By("checking the ConfigMap exists")
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, cm)).To(Succeed())
+			Expect(cm.Data).To(HaveKey("experiment.json"))
+
+			By("verifying the experiment.json content")
+			var expJSON experimentJSON
+			Expect(json.Unmarshal([]byte(cm.Data["experiment.json"]), &expJSON)).To(Succeed())
+			Expect(expJSON.LLMAsAJudgeModel).To(Equal("gemini-2.5-flash-lite"))
+			Expect(expJSON.DefaultThreshold).To(Equal(0.9))
+			Expect(expJSON.Scenarios).To(HaveLen(1))
+			Expect(expJSON.Scenarios[0].Name).To(Equal("test scenario"))
+			Expect(expJSON.Scenarios[0].Steps).To(HaveLen(1))
+			Expect(expJSON.Scenarios[0].Steps[0].Input).To(Equal("What is the weather?"))
+			Expect(expJSON.Scenarios[0].Steps[0].Reference).NotTo(BeNil())
+			Expect(expJSON.Scenarios[0].Steps[0].Reference.Response).To(Equal("It is sunny"))
+			Expect(expJSON.Scenarios[0].Steps[0].Reference.Topics).To(ConsistOf("weather"))
+			Expect(expJSON.Scenarios[0].Steps[0].Reference.ToolCalls).To(HaveLen(1))
+			Expect(expJSON.Scenarios[0].Steps[0].Reference.ToolCalls[0].Name).To(Equal("get_weather"))
+			Expect(expJSON.Scenarios[0].Steps[0].Metrics).To(HaveLen(1))
+			Expect(expJSON.Scenarios[0].Steps[0].Metrics[0].MetricName).To(Equal("AgentGoalAccuracy"))
+		})
+
+		It("should set ConfigMap owner reference to the Experiment", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, cm)).To(Succeed())
+			Expect(cm.OwnerReferences).To(HaveLen(1))
+			Expect(cm.OwnerReferences[0].Kind).To(Equal("Experiment"))
+			Expect(cm.OwnerReferences[0].Name).To(Equal(expName))
+			Expect(cm.OwnerReferences[0].Controller).NotTo(BeNil())
+			Expect(*cm.OwnerReferences[0].Controller).To(BeTrue())
+		})
+
+		It("should create a TestWorkflow without setup-template", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+
+			By("checking content.files mounts the ConfigMap")
+			content, ok := spec["content"].(map[string]interface{})
+			Expect(ok).To(BeTrue(), "spec.content should be present in scenarios mode")
+			files := content["files"].([]interface{})
+			Expect(files).To(HaveLen(1))
+			file := files[0].(map[string]interface{})
+			Expect(file["path"]).To(Equal("/data/datasets/experiment.json"))
+			contentFrom := file["contentFrom"].(map[string]interface{})
+			cmRef := contentFrom["configMapKeyRef"].(map[string]interface{})
+			Expect(cmRef["name"]).To(Equal(expName))
+			Expect(cmRef["key"]).To(Equal("experiment.json"))
+
+			By("checking use templates do NOT include setup-template")
+			use := spec["use"].([]interface{})
+			templateNames := make([]string, 0, len(use))
+			for _, u := range use {
+				templateNames = append(templateNames, u.(map[string]interface{})["name"].(string))
+			}
+			Expect(templateNames).NotTo(ContainElement("setup-template"))
+			Expect(templateNames).To(ContainElements("run-template", "evaluate-template", "publish-template", "visualize-template"))
+
+			By("checking the run-template has the correct agentUrl")
+			for _, u := range use {
+				um := u.(map[string]interface{})
+				if um["name"] == "run-template" {
+					cfg := um["config"].(map[string]interface{})
+					Expect(cfg["agentUrl"]).To(Equal("http://my-agent.agents:8000"))
+				}
+			}
+		})
+
+		It("should set TestWorkflow owner reference", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+			Expect(wf.GetOwnerReferences()).To(HaveLen(1))
+			Expect(wf.GetOwnerReferences()[0].Kind).To(Equal("Experiment"))
+			Expect(wf.GetOwnerReferences()[0].Name).To(Equal(expName))
+		})
+
+		It("should not create a TestTrigger when trigger is nil", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			trig := &unstructured.Unstructured{}
+			trig.SetGroupVersionKind(testTriggerGVK)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-trigger", Namespace: namespace}, trig)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should set Ready=True status condition after successful reconciliation", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			exp := &testbenchv1alpha1.Experiment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
+
+			var readyCond *metav1.Condition
+			for i := range exp.Status.Conditions {
+				if exp.Status.Conditions[i].Type == conditionReady {
+					readyCond = &exp.Status.Conditions[i]
+					break
+				}
+			}
+			Expect(readyCond).NotTo(BeNil())
+			Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(readyCond.Reason).To(Equal("ReconcileSucceeded"))
+			Expect(readyCond.ObservedGeneration).To(Equal(exp.Generation))
+		})
+
+		It("should populate generatedResources in status", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			exp := &testbenchv1alpha1.Experiment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
+
+			kinds := make([]string, 0, len(exp.Status.GeneratedResources))
+			for _, gr := range exp.Status.GeneratedResources {
+				kinds = append(kinds, gr.Kind)
+			}
+			Expect(kinds).To(ContainElements("ConfigMap", "TestWorkflow"))
+		})
+
+		It("should be idempotent on re-reconciliation", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			cmList := &corev1.ConfigMapList{}
+			Expect(k8sClient.List(ctx, cmList,
+				client.InNamespace(namespace), client.MatchingLabels{})).To(Succeed())
+			count := 0
+			for _, cm := range cmList.Items {
+				if cm.Name == expName {
+					count++
+				}
+			}
+			Expect(count).To(Equal(1))
+		})
+	})
+
+	Context("Dataset mode reconciliation", func() {
+		const expName = "exp-dataset"
+
+		BeforeEach(func() {
+			By("creating the Experiment with a dataset URL")
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
+					Dataset: &testbenchv1alpha1.DatasetSource{
+						URL: "http://data-server/dataset.csv",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupExperiment(expName)
+		})
+
+		It("should create a ConfigMap with empty scenarios as placeholder", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, cm)).To(Succeed())
+			Expect(cm.Data).To(HaveKey("experiment.json"))
+
+			var expJSON experimentJSON
+			Expect(json.Unmarshal([]byte(cm.Data["experiment.json"]), &expJSON)).To(Succeed())
+			Expect(expJSON.Scenarios).To(BeEmpty())
+		})
+
+		It("should create a TestWorkflow with setup-template and correct datasetUrl", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+
+			By("checking no content.files in dataset mode")
+			_, hasContent := spec["content"]
+			Expect(hasContent).To(BeFalse(), "spec.content should be absent in dataset mode")
+
+			By("checking setup-template is first in use list")
+			use := spec["use"].([]interface{})
+			first := use[0].(map[string]interface{})
+			Expect(first["name"]).To(Equal("setup-template"))
+			cfg := first["config"].(map[string]interface{})
+			Expect(cfg["datasetUrl"]).To(Equal("http://data-server/dataset.csv"))
+		})
+
+		It("should resolve S3 dataset URL correctly", func() {
+			exp := &testbenchv1alpha1.Experiment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
+			exp.Spec.Dataset = &testbenchv1alpha1.DatasetSource{
+				S3: &testbenchv1alpha1.S3Source{Bucket: "my-bucket", Key: "data/dataset.csv"},
+			}
+			Expect(k8sClient.Update(ctx, exp)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+			spec := wf.Object["spec"].(map[string]interface{})
+			use := spec["use"].([]interface{})
+			first := use[0].(map[string]interface{})
+			Expect(first["name"]).To(Equal("setup-template"))
+			Expect(first["config"].(map[string]interface{})["datasetUrl"]).
+				To(Equal("s3://my-bucket/data/dataset.csv"))
+		})
+	})
+
+	Context("Trigger management", func() {
+		const expName = "exp-trigger"
+
+		createExperiment := func(triggerEnabled bool, policy string) {
+			trigger := &testbenchv1alpha1.TriggerSpec{
+				Enabled:           triggerEnabled,
+				ConcurrencyPolicy: policy,
+			}
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
+					Scenarios: []testbenchv1alpha1.Scenario{
+						{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
+					},
+					Trigger: trigger,
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+		}
+
+		AfterEach(func() {
+			cleanupExperiment(expName)
+		})
+
+		It("should create a TestTrigger when trigger.enabled=true", func() {
+			createExperiment(true, "Forbid")
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			trig := &unstructured.Unstructured{}
+			trig.SetGroupVersionKind(testTriggerGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      expName + "-trigger",
+				Namespace: namespace,
+			}, trig)).To(Succeed())
+
+			spec := trig.Object["spec"].(map[string]interface{})
+			Expect(spec["resource"]).To(Equal("deployment"))
+			Expect(spec["concurrencyPolicy"]).To(Equal("forbid"))
+			Expect(spec["action"]).To(Equal("run"))
+			Expect(spec["execution"]).To(Equal("testworkflow"))
+			Expect(spec["disabled"]).To(BeFalse())
+
+			resSelector := spec["resourceSelector"].(map[string]interface{})
+			Expect(resSelector["name"]).To(Equal("my-agent"))
+			Expect(resSelector["namespace"]).To(Equal("agents"))
+
+			testSelector := spec["testSelector"].(map[string]interface{})
+			Expect(testSelector["name"]).To(Equal(expName))
+			Expect(testSelector["namespace"]).To(Equal(namespace))
+		})
+
+		It("should set TestTrigger owner reference", func() {
+			createExperiment(true, "Allow")
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			trig := &unstructured.Unstructured{}
+			trig.SetGroupVersionKind(testTriggerGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      expName + "-trigger",
+				Namespace: namespace,
+			}, trig)).To(Succeed())
+			Expect(trig.GetOwnerReferences()).To(HaveLen(1))
+			Expect(trig.GetOwnerReferences()[0].Kind).To(Equal("Experiment"))
+		})
+
+		It("should not create a TestTrigger when trigger.enabled=false", func() {
+			createExperiment(false, "")
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			trig := &unstructured.Unstructured{}
+			trig.SetGroupVersionKind(testTriggerGVK)
+			err := k8sClient.Get(ctx, types.NamespacedName{
+				Name:      expName + "-trigger",
+				Namespace: namespace,
+			}, trig)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should delete the TestTrigger when trigger is disabled after being enabled", func() {
+			By("creating an experiment with trigger enabled")
+			createExperiment(true, "Allow")
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			trig := &unstructured.Unstructured{}
+			trig.SetGroupVersionKind(testTriggerGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      expName + "-trigger",
+				Namespace: namespace,
+			}, trig)).To(Succeed())
+
+			By("disabling the trigger")
+			exp := &testbenchv1alpha1.Experiment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
+			exp.Spec.Trigger.Enabled = false
+			Expect(k8sClient.Update(ctx, exp)).To(Succeed())
+
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			err := k8sClient.Get(ctx, types.NamespacedName{
+				Name:      expName + "-trigger",
+				Namespace: namespace,
+			}, trig)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should include TestTrigger in generatedResources when enabled", func() {
+			createExperiment(true, "Allow")
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			exp := &testbenchv1alpha1.Experiment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
+
+			kinds := make([]string, 0, len(exp.Status.GeneratedResources))
+			for _, gr := range exp.Status.GeneratedResources {
+				kinds = append(kinds, gr.Kind)
+			}
+			Expect(kinds).To(ContainElements("ConfigMap", "TestWorkflow", "TestTrigger"))
+		})
+	})
+
+	Context("Status management", func() {
+		const expName = "exp-status"
+
+		AfterEach(func() {
+			cleanupExperiment(expName)
+		})
+
+		It("should set WorkflowReady condition to True on success", func() {
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent"},
+					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
+			var wfCond *metav1.Condition
+			for i := range exp.Status.Conditions {
+				if exp.Status.Conditions[i].Type == conditionWorkflowReady {
+					wfCond = &exp.Status.Conditions[i]
+					break
+				}
+			}
+			Expect(wfCond).NotTo(BeNil())
+			Expect(wfCond.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("should handle missing Experiment gracefully (not found)", func() {
+			err := reconcileExperiment("nonexistent")
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		})
+	})
+
+	Context("Agent URL resolution", func() {
+		It("should use agentRef.Namespace for the agent URL", func() {
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "weather-agent", Namespace: "sample-agents"},
+				},
+			}
+			Expect(r.resolveAgentURL(exp)).To(Equal("http://weather-agent.sample-agents:8000"))
+		})
+
+		It("should fall back to experiment namespace when agentRef.Namespace is empty", func() {
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "my-ns"},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "my-agent"},
+				},
+			}
+			Expect(r.resolveAgentURL(exp)).To(Equal("http://my-agent.my-ns:8000"))
+		})
+	})
+
+	Context("buildExperimentJSON", func() {
+		It("should serialize customValues and metric parameters as raw JSON", func() {
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					DefaultThreshold: 0.8,
+					Scenarios: []testbenchv1alpha1.Scenario{
+						{
+							Name: "s",
+							Steps: []testbenchv1alpha1.Step{
+								{
+									Input:        "q",
+									CustomValues: runtime.RawExtension{Raw: []byte(`{"key":"value"}`)},
+									Metrics: []testbenchv1alpha1.Metric{
+										{
+											MetricName: "M",
+											Threshold:  0.7,
+											Parameters: runtime.RawExtension{Raw: []byte(`{"mode":"precision"}`)},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			data, err := r.buildExperimentJSON(exp)
+			Expect(err).NotTo(HaveOccurred())
+
+			var result experimentJSON
+			Expect(json.Unmarshal([]byte(data), &result)).To(Succeed())
+			Expect(result.DefaultThreshold).To(Equal(0.8))
+			Expect(result.Scenarios[0].Steps[0].CustomValues).To(MatchJSON(`{"key":"value"}`))
+			Expect(result.Scenarios[0].Steps[0].Metrics[0].Parameters).To(MatchJSON(`{"mode":"precision"}`))
+		})
+
+		It("should produce empty scenarios list for dataset mode", func() {
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					DefaultThreshold: 0.9,
+					Dataset:          &testbenchv1alpha1.DatasetSource{URL: "http://example.com/data.csv"},
+				},
+			}
+			data, err := r.buildExperimentJSON(exp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(data).To(ContainSubstring(`"scenarios": []`))
+		})
+	})
+
+	Context("OTel env var injection", func() {
+		const expName = "exp-otel"
+
+		AfterEach(func() {
+			cleanupExperiment(expName)
+		})
+
+		It("should inject OTEL_EXPORTER_OTLP_ENDPOINT from otel-config ConfigMap", func() {
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent"},
+					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+			container := spec["container"].(map[string]interface{})
+			envList := container["env"].([]interface{})
+			Expect(envList).To(HaveLen(1))
+			envVar := envList[0].(map[string]interface{})
+			Expect(envVar["name"]).To(Equal(otelEndpointKey))
+			valueFrom := envVar["valueFrom"].(map[string]interface{})
+			cmRef := valueFrom["configMapKeyRef"].(map[string]interface{})
+			Expect(cmRef["name"]).To(Equal(otelConfigMapName))
+			Expect(cmRef["key"]).To(Equal(otelEndpointKey))
 		})
 	})
 })
