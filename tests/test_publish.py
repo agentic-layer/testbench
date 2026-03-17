@@ -199,6 +199,38 @@ def _mock_otel(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_skips_publishing_when_endpoint_not_set(tmp_path, monkeypatch):
+    """When OTEL_EXPORTER_OTLP_ENDPOINT is unset, publishing is skipped entirely."""
+    exporter_calls: list[dict] = []
+    set_calls: list[dict] = []
+    force_flush_calls: list[bool] = []
+    shutdown_calls: list[bool] = []
+
+    class MockExporter:
+        _preferred_temporality = {}
+        _preferred_aggregation = {}
+
+    def mock_exporter_init(endpoint):
+        exporter_calls.append({"endpoint": endpoint})
+        return MockExporter()
+
+    monkeypatch.setattr("publish.OTLPMetricExporter", mock_exporter_init)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+
+    experiment = _make_evaluated_experiment()
+    file_path = _write_experiment(tmp_path, experiment)
+
+    publisher = MetricsPublisher(file_path, "test-workflow", "exec-123", 42)
+    result = await publisher.run()
+
+    assert result is not None
+    assert len(exporter_calls) == 0
+    assert len(set_calls) == 0
+    assert len(force_flush_calls) == 0
+    assert len(shutdown_calls) == 0
+
+
+@pytest.mark.asyncio
 async def test_creates_gauge_for_metrics(tmp_path, monkeypatch):
     """A single testbench_evaluation_metric gauge is created."""
     create_gauge_calls, _, _, _, _ = _mock_otel(monkeypatch)

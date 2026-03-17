@@ -12,7 +12,6 @@ spec:
     openApiBasePath:
       type: string
       description: "Base path for OpenAI API"
-      default: "http://ai-gateway-litellm.ai-gateway:4000"
 
   # Steps to execute
   steps:

@@ -71,8 +71,10 @@ class MetricsPublisher:
         self._execution_id = execution_id
         self._execution_number = execution_number
 
+        self._disabled: bool = False
         self._provider: MeterProvider | None = None
         self._gauge: Any = None
+        self._otlp_endpoint: str = ""
         self._current_trace_id: str = "missing-trace-id"
         self._current_experiment_id: str = ""
         self._current_scenario_id: str = ""
@@ -85,9 +87,16 @@ class MetricsPublisher:
 
     async def before_run(self, experiment: EvaluatedExperiment) -> None:  # type: ignore[override]
         """Create OTel MeterProvider, exporter, and gauge instrument."""
-        otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+        otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        if otlp_endpoint is None:
+            logger.warning("OTEL_EXPORTER_OTLP_ENDPOINT not set — OTLP publishing disabled")
+            self._disabled = True
+            return
+
         if not otlp_endpoint.startswith("http://") and not otlp_endpoint.startswith("https://"):
             otlp_endpoint = f"http://{otlp_endpoint}"
+
+        self._otlp_endpoint = otlp_endpoint
 
         exporter = OTLPMetricExporter(endpoint=f"{otlp_endpoint}/v1/metrics")
         reader = PeriodicExportingMetricReader(exporter=exporter, export_interval_millis=3600000)
@@ -117,6 +126,9 @@ class MetricsPublisher:
 
     async def on_step(self, step: EvaluatedStep, scenario: Scenario) -> EvaluatedStep:  # type: ignore[override]
         """Record gauge values for each evaluation in the step."""
+        if self._disabled:
+            return step
+
         step_id = step.id or "unknown"
         user_input_truncated = _get_user_input_truncated(step.input)
 
@@ -160,8 +172,7 @@ class MetricsPublisher:
             if flush_success:
                 logger.info("Metrics successfully pushed via OTLP")
             else:
-                otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
-                error_msg = f"Failed to flush metrics to OTLP endpoint at {otlp_endpoint}"
+                error_msg = f"Failed to flush metrics to OTLP endpoint at {self._otlp_endpoint}"
                 logger.error(error_msg)
                 raise RuntimeError(error_msg)
         except Exception:
@@ -192,8 +203,8 @@ class MetricsPublisher:
 def publish_metrics(input_file: str, workflow_name: str, execution_id: str, execution_number: int) -> None:
     """Publish evaluation metrics via OpenTelemetry OTLP.
 
-    The OTLP endpoint is read from the OTEL_EXPORTER_OTLP_ENDPOINT environment variable,
-    with a default of 'http://localhost:4318' if not set.
+    The OTLP endpoint is read from the ``OTEL_EXPORTER_OTLP_ENDPOINT`` environment
+    variable. If the variable is not set, a warning is logged and publishing is skipped.
 
     Args:
         input_file: Path to the evaluated experiment JSON file.
