@@ -29,5 +29,7 @@ spec:
     config:
       agentUrl: "http://weather-agent.sample-agents:8000"
   - name: evaluate-template
+    config:
+      openApiBasePath: "http://ai-gateway-litellm.ai-gateway:4000"
   - name: publish-template
   - name: visualize-template
