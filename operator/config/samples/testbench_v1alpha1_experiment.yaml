@@ -17,5 +17,3 @@ spec:
       key: dataset.csv
   trigger:
     enabled: true
-    event: on_push
-    concurrencyPolicy: Forbid

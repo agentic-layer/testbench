@@ -58,12 +58,12 @@ var _ = Describe("Experiment Controller", func() {
 			_ = k8sClient.Delete(ctx, exp)
 		}
 		cm := &corev1.ConfigMap{}
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cm); err == nil {
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-experiment", Namespace: namespace}, cm); err == nil {
 			_ = k8sClient.Delete(ctx, cm)
 		}
 		wf := &unstructured.Unstructured{}
 		wf.SetGroupVersionKind(testWorkflowGVK)
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, wf); err == nil {
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-workflow", Namespace: namespace}, wf); err == nil {
 			_ = k8sClient.Delete(ctx, wf)
 		}
 		trig := &unstructured.Unstructured{}
@@ -122,7 +122,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			By("checking the ConfigMap exists")
 			cm := &corev1.ConfigMap{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, cm)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-experiment", Namespace: namespace}, cm)).To(Succeed())
 			Expect(cm.Data).To(HaveKey("experiment.json"))
 
 			By("verifying the experiment.json content")
@@ -147,7 +147,7 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(reconcileExperiment(expName)).To(Succeed())
 
 			cm := &corev1.ConfigMap{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, cm)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-experiment", Namespace: namespace}, cm)).To(Succeed())
 			Expect(cm.OwnerReferences).To(HaveLen(1))
 			Expect(cm.OwnerReferences[0].Kind).To(Equal("Experiment"))
 			Expect(cm.OwnerReferences[0].Name).To(Equal(expName))
@@ -160,7 +160,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
 
 			spec := wf.Object["spec"].(map[string]interface{})
 
@@ -173,7 +173,7 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(file["path"]).To(Equal("/data/datasets/experiment.json"))
 			contentFrom := file["contentFrom"].(map[string]interface{})
 			cmRef := contentFrom["configMapKeyRef"].(map[string]interface{})
-			Expect(cmRef["name"]).To(Equal(expName))
+			Expect(cmRef["name"]).To(Equal(expName + "-experiment"))
 			Expect(cmRef["key"]).To(Equal("experiment.json"))
 
 			By("checking use templates do NOT include setup-template")
@@ -200,7 +200,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
 			Expect(wf.GetOwnerReferences()).To(HaveLen(1))
 			Expect(wf.GetOwnerReferences()[0].Kind).To(Equal("Experiment"))
 			Expect(wf.GetOwnerReferences()[0].Name).To(Equal(expName))
@@ -256,7 +256,7 @@ var _ = Describe("Experiment Controller", func() {
 				client.InNamespace(namespace), client.MatchingLabels{})).To(Succeed())
 			count := 0
 			for _, cm := range cmList.Items {
-				if cm.Name == expName {
+				if cm.Name == expName+"-experiment" {
 					count++
 				}
 			}
@@ -289,7 +289,7 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(reconcileExperiment(expName)).To(Succeed())
 
 			cm := &corev1.ConfigMap{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, cm)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-experiment", Namespace: namespace}, cm)).To(Succeed())
 			Expect(cm.Data).To(HaveKey("experiment.json"))
 
 			var expJSON experimentJSON
@@ -302,7 +302,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
 
 			spec := wf.Object["spec"].(map[string]interface{})
 
@@ -329,7 +329,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
 			spec := wf.Object["spec"].(map[string]interface{})
 			use := spec["use"].([]interface{})
 			first := use[0].(map[string]interface{})
@@ -387,7 +387,7 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(resSelector["namespace"]).To(Equal("agents"))
 
 			testSelector := spec["testSelector"].(map[string]interface{})
-			Expect(testSelector["name"]).To(Equal(expName))
+			Expect(testSelector["name"]).To(Equal(expName + "-workflow"))
 			Expect(testSelector["namespace"]).To(Equal(namespace))
 		})
 
@@ -589,7 +589,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
 
 			spec := wf.Object["spec"].(map[string]interface{})
 			container := spec["container"].(map[string]interface{})

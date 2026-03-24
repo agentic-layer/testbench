@@ -118,9 +118,9 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	var generatedResources []testbenchv1alpha1.GeneratedResource
-	reconcileErr := r.reconcileResources(ctx, experiment, &generatedResources)
+	result, reconcileErr := r.reconcileResources(ctx, experiment, &generatedResources)
 
-	if statusErr := r.updateStatus(ctx, experiment, generatedResources, reconcileErr); statusErr != nil {
+	if statusErr := r.updateStatus(ctx, experiment, generatedResources, result, reconcileErr); statusErr != nil {
 		logger.Error(statusErr, "failed to update status")
 		return ctrl.Result{}, statusErr
 	}
@@ -128,21 +128,31 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, reconcileErr
 }
 
+// reconcileResult tracks per-resource errors so status conditions can be set accurately.
+type reconcileResult struct {
+	workflowSkipped bool
+	workflowErr     error
+}
+
 func (r *ExperimentReconciler) reconcileResources(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
-) error {
+) (reconcileResult, error) {
+	var result reconcileResult
 	if err := r.reconcileConfigMap(ctx, experiment, generatedResources); err != nil {
-		return fmt.Errorf("reconciling ConfigMap: %w", err)
+		return result, fmt.Errorf("reconciling ConfigMap: %w", err)
 	}
-	if err := r.reconcileTestWorkflow(ctx, experiment, generatedResources); err != nil {
-		return fmt.Errorf("reconciling TestWorkflow: %w", err)
+	wfSkipped, err := r.reconcileTestWorkflow(ctx, experiment, generatedResources)
+	if err != nil {
+		result.workflowErr = err
+		return result, fmt.Errorf("reconciling TestWorkflow: %w", err)
 	}
+	result.workflowSkipped = wfSkipped
 	if err := r.reconcileTestTrigger(ctx, experiment, generatedResources); err != nil {
-		return fmt.Errorf("reconciling TestTrigger: %w", err)
+		return result, fmt.Errorf("reconciling TestTrigger: %w", err)
 	}
-	return nil
+	return result, nil
 }
 
 // reconcileConfigMap creates or updates the ConfigMap holding experiment.json.
@@ -151,9 +161,10 @@ func (r *ExperimentReconciler) reconcileConfigMap(
 	experiment *testbenchv1alpha1.Experiment,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) error {
+	cmName := experiment.Name + "-experiment"
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      experiment.Name,
+			Name:      cmName,
 			Namespace: experiment.Namespace,
 		},
 	}
@@ -240,14 +251,15 @@ func (r *ExperimentReconciler) convertStep(step testbenchv1alpha1.Step) stepJSON
 }
 
 // reconcileTestWorkflow creates or updates the Testkube TestWorkflow for the Experiment.
+// It returns (skipped, error) where skipped is true when the CRD is not installed.
 func (r *ExperimentReconciler) reconcileTestWorkflow(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
-) error {
+) (bool, error) {
 	workflow := r.buildTestWorkflow(experiment)
 	if err := controllerutil.SetControllerReference(experiment, workflow, r.Scheme); err != nil {
-		return err
+		return false, err
 	}
 
 	existing := &unstructured.Unstructured{}
@@ -255,19 +267,19 @@ func (r *ExperimentReconciler) reconcileTestWorkflow(
 	err := r.Get(ctx, types.NamespacedName{Name: workflow.GetName(), Namespace: workflow.GetNamespace()}, existing)
 	if errors.IsNotFound(err) {
 		if createErr := r.Create(ctx, workflow); createErr != nil {
-			return createErr
+			return false, createErr
 		}
 	} else if err != nil {
 		if isCRDNotInstalled(err) {
 			log.FromContext(ctx).Info("Testkube TestWorkflow CRD not installed; skipping TestWorkflow reconciliation")
-			return nil
+			return true, nil
 		}
-		return err
+		return false, err
 	} else {
 		existing.Object["spec"] = workflow.Object["spec"]
 		existing.SetOwnerReferences(workflow.GetOwnerReferences())
 		if updateErr := r.Update(ctx, existing); updateErr != nil {
-			return updateErr
+			return false, updateErr
 		}
 	}
 
@@ -276,7 +288,7 @@ func (r *ExperimentReconciler) reconcileTestWorkflow(
 		Name:      workflow.GetName(),
 		Namespace: workflow.GetNamespace(),
 	})
-	return nil
+	return false, nil
 }
 
 // buildTestWorkflow constructs the desired TestWorkflow unstructured object.
@@ -330,7 +342,7 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 					"path": "/data/datasets/experiment.json",
 					"contentFrom": map[string]interface{}{
 						"configMapKeyRef": map[string]interface{}{
-							"name": experiment.Name,
+							"name": experiment.Name + "-experiment",
 							"key":  "experiment.json",
 						},
 					},
@@ -344,7 +356,7 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 			"apiVersion": testWorkflowGVK.GroupVersion().String(),
 			"kind":       testWorkflowGVK.Kind,
 			"metadata": map[string]interface{}{
-				"name":      experiment.Name,
+				"name":      experiment.Name + "-workflow",
 				"namespace": experiment.Namespace,
 			},
 			"spec": spec,
@@ -436,12 +448,12 @@ func (r *ExperimentReconciler) buildTestTrigger(experiment *testbenchv1alpha1.Ex
 					"name":      experiment.Spec.AgentRef.Name,
 					"namespace": agentNs,
 				},
-				"event":             "modified",
+				"event":             r.resolveTriggerEvent(experiment),
 				"action":            "run",
 				"execution":         "testworkflow",
 				"concurrencyPolicy": concurrencyPolicy,
 				"testSelector": map[string]interface{}{
-					"name":      experiment.Name,
+					"name":      experiment.Name + "-workflow",
 					"namespace": experiment.Namespace,
 				},
 				"disabled": false,
@@ -455,6 +467,7 @@ func (r *ExperimentReconciler) updateStatus(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
 	generatedResources []testbenchv1alpha1.GeneratedResource,
+	result reconcileResult,
 	reconcileErr error,
 ) error {
 	experiment.Status.GeneratedResources = generatedResources
@@ -478,10 +491,14 @@ func (r *ExperimentReconciler) updateStatus(
 	wfStatus := metav1.ConditionTrue
 	wfReason := "WorkflowCreated"
 	wfMsg := "TestWorkflow created successfully"
-	if reconcileErr != nil {
+	if result.workflowErr != nil {
 		wfStatus = metav1.ConditionFalse
 		wfReason = "WorkflowNotReady"
-		wfMsg = reconcileErr.Error()
+		wfMsg = result.workflowErr.Error()
+	} else if result.workflowSkipped {
+		wfStatus = metav1.ConditionFalse
+		wfReason = "CRDNotInstalled"
+		wfMsg = "TestWorkflow CRD not installed; workflow was not created"
 	}
 	apimeta.SetStatusCondition(&experiment.Status.Conditions, metav1.Condition{
 		Type:               conditionWorkflowReady,
@@ -492,6 +509,14 @@ func (r *ExperimentReconciler) updateStatus(
 	})
 
 	return r.Status().Update(ctx, experiment)
+}
+
+// resolveTriggerEvent returns the trigger event, defaulting to "modified".
+func (r *ExperimentReconciler) resolveTriggerEvent(experiment *testbenchv1alpha1.Experiment) string {
+	if experiment.Spec.Trigger != nil && experiment.Spec.Trigger.Event != "" {
+		return strings.ToLower(experiment.Spec.Trigger.Event)
+	}
+	return "modified"
 }
 
 // resolveAgentURL builds the in-cluster DNS URL for the agent service.
