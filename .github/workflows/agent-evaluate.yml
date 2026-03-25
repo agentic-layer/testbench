@@ -1,0 +1,189 @@
+name: Agent Evaluate
+
+on:
+  workflow_call:
+    inputs:
+      dataset:
+        description: 'Dataset source: S3 URI, HTTP URL, or local file path'
+        required: false
+        type: string
+        default: ''
+      agent-url:
+        description: 'A2A endpoint URL of the agent to evaluate'
+        required: false
+        type: string
+        default: ''
+      agent-image:
+        description: 'Docker image to start as agent sidecar'
+        required: false
+        type: string
+        default: ''
+      agent-port:
+        description: 'Port the agent sidecar listens on'
+        required: false
+        type: string
+        default: '8000'
+      experiment-file:
+        description: 'Path to pre-built experiment JSON'
+        required: false
+        type: string
+        default: ''
+      model:
+        description: 'LLM model for evaluation'
+        required: false
+        type: string
+        default: ''
+      openai-base-url:
+        description: 'OpenAI-compatible API base URL'
+        required: true
+        type: string
+      fail-on-threshold:
+        description: 'Fail if any metric is below threshold'
+        required: false
+        type: string
+        default: 'true'
+      publish:
+        description: 'Enable OTLP metric publishing'
+        required: false
+        type: string
+        default: 'false'
+      otlp-endpoint:
+        description: 'OTLP collector endpoint'
+        required: false
+        type: string
+        default: ''
+      visualize:
+        description: 'Generate HTML evaluation report'
+        required: false
+        type: string
+        default: 'true'
+      image:
+        description: 'Testbench Docker image'
+        required: false
+        type: string
+        default: 'ghcr.io/agentic-layer/testbench/testworkflows:latest'
+      image-tag:
+        description: 'Override image tag'
+        required: false
+        type: string
+        default: ''
+      upload-artifacts:
+        description: 'Upload report and evaluated JSON as artifacts'
+        required: false
+        type: string
+        default: 'true'
+      comment-on-pr:
+        description: 'Post summary comment on PR'
+        required: false
+        type: string
+        default: 'true'
+      artifact-retention-days:
+        description: 'Artifact retention period in days'
+        required: false
+        type: number
+        default: 30
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+      GOOGLE_API_KEY:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+
+      - name: Checkout testbench action
+        uses: actions/checkout@v4
+        with:
+          repository: agentic-layer/testbench
+          ref: ${{ github.action_ref || 'main' }}
+          path: .testbench-action
+
+      - name: Run agent evaluation
+        id: eval
+        uses: ./.testbench-action
+        with:
+          dataset: ${{ inputs.dataset }}
+          agent-url: ${{ inputs.agent-url }}
+          agent-image: ${{ inputs.agent-image }}
+          agent-port: ${{ inputs.agent-port }}
+          experiment-file: ${{ inputs.experiment-file }}
+          model: ${{ inputs.model }}
+          openai-base-url: ${{ inputs.openai-base-url }}
+          fail-on-threshold: ${{ inputs.fail-on-threshold }}
+          publish: ${{ inputs.publish }}
+          otlp-endpoint: ${{ inputs.otlp-endpoint }}
+          visualize: ${{ inputs.visualize }}
+          image: ${{ inputs.image }}
+          image-tag: ${{ inputs.image-tag }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Upload evaluation artifacts
+        if: always() && inputs.upload-artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-evaluation-results
+          retention-days: ${{ inputs.artifact-retention-days }}
+          path: |
+            ${{ steps.eval.outputs.evaluated-experiment-path }}
+            ${{ steps.eval.outputs.report-path }}
+          if-no-files-found: warn
+
+      - name: Comment on PR
+        if: always() && inputs.comment-on-pr == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const passed = '${{ steps.eval.outputs.passed }}' === 'true';
+            const summary = JSON.parse('${{ steps.eval.outputs.summary }}' || '[]');
+
+            let body = `## Agent Evaluation Results ${passed ? ':white_check_mark:' : ':x:'}\n\n`;
+            body += `| Metric | Score | Threshold | Status |\n`;
+            body += `|--------|-------|-----------|--------|\n`;
+
+            for (const m of summary) {
+              const status = m.passed ? ':white_check_mark:' : ':x:';
+              body += `| ${m.name} | ${m.score?.toFixed(2) ?? 'N/A'} | ${m.threshold?.toFixed(2) ?? 'N/A'} | ${status} |\n`;
+            }
+
+            const total = summary.length;
+            const passedCount = summary.filter(m => m.passed).length;
+            body += `\n**Overall: ${passedCount}/${total} metrics passed**\n`;
+
+            // Find and update existing comment or create new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.body.includes('Agent Evaluation Results')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
