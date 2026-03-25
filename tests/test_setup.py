@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from setup import custom_convert_csv, dataframe_to_experiment, get_converter, main
+from setup import custom_convert_csv, dataframe_to_experiment, get_converter, main, main_auto
 
 
 # Fixtures
@@ -191,5 +191,63 @@ def test_main_with_invalid_s3_key(temp_dir, monkeypatch):
         # Verify that the error propagates
         with pytest.raises(Exception, match="NoSuchKey"):
             main("test-bucket", "nonexistent.csv")
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_main_with_http_url(temp_dir, monkeypatch):
+    """Test main_auto function with HTTP URL source."""
+    tmp, original_cwd = temp_dir
+    os.chdir(tmp)
+    try:
+        csv_content = b"user_input,retrieved_contexts,reference\n"
+        csv_content += b'"Question?","Context text","Answer"\n'
+
+        async def mock_download(url: str) -> bytes:
+            assert url == "https://example.com/data.csv"
+            return csv_content
+
+        monkeypatch.setattr("setup.download_http", mock_download)
+        main_auto("https://example.com/data.csv")
+
+        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
+        assert dataset_file.exists()
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_main_with_local_file(temp_dir):
+    """Test main_auto function with local file path."""
+    tmp, original_cwd = temp_dir
+    os.chdir(tmp)
+    try:
+        csv_path = Path(tmp) / "input.csv"
+        csv_path.write_text('user_input,reference\n"Question?","Answer"\n')
+        main_auto(str(csv_path))
+
+        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
+        assert dataset_file.exists()
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_main_with_s3_uri(temp_dir, monkeypatch):
+    """Test main_auto function with s3:// URI."""
+    tmp, original_cwd = temp_dir
+    os.chdir(tmp)
+    try:
+        csv_content = b'user_input,reference\n"Question?","Answer"\n'
+
+        class MockS3Client:
+            def get_object(self, Bucket, Key):  # noqa: N803
+                assert Bucket == "my-bucket"
+                assert Key == "path/to/data.csv"
+                return {"Body": BytesIO(csv_content)}
+
+        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        main_auto("s3://my-bucket/path/to/data.csv")
+
+        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
+        assert dataset_file.exists()
     finally:
         os.chdir(original_cwd)

@@ -10,13 +10,16 @@ Usage::
 """
 
 import argparse
+import asyncio
 import logging
 import os
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import boto3
+import httpx
 import pandas as pd
 from botocore.client import Config
 from pandas import DataFrame
@@ -162,20 +165,84 @@ def main(bucket: str, key: str) -> None:
     logger.info("Dataset saved successfully to data/datasets/experiment.json")
 
 
+async def download_http(url: str) -> bytes:
+    """Download a file from an HTTP/HTTPS URL."""
+    logger.info(f"Downloading from {url}...")
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120)) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        logger.info(f"Downloaded {len(response.content)} bytes")
+        return response.content
+
+
+def detect_source_type(source: str) -> str:
+    """Detect the source type from the source string."""
+    if source.startswith("s3://"):
+        return "s3"
+    if source.startswith("http://") or source.startswith("https://"):
+        return "http"
+    return "file"
+
+
+def main_auto(source: str) -> None:
+    """Download dataset from any source, convert to Experiment JSON, and save.
+
+    Auto-detects source type:
+    - s3://bucket/key -> S3 download
+    - http:// or https:// -> HTTP download
+    - otherwise -> local file path
+    """
+    source_type = detect_source_type(source)
+
+    if source_type == "s3":
+        path = source[5:]  # Remove "s3://"
+        parts = path.split("/", 1)
+        if len(parts) != 2 or not parts[1]:
+            raise ValueError(f"Invalid S3 URI: {source}. Expected format: s3://bucket/key")
+        bucket, key = parts
+        main(bucket, key)
+        return
+
+    if source_type == "http":
+        parsed = urlparse(source)
+        key = parsed.path
+        converter = get_converter(key)
+        content = asyncio.run(download_http(source))
+        buffer = BytesIO(content)
+        dataframe = converter(buffer)
+    else:
+        file_path = Path(source)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Local file not found: {source}")
+        converter = get_converter(source)
+        with open(file_path, "rb") as f:
+            buffer = BytesIO(f.read())
+        dataframe = converter(buffer)
+
+    logger.info(f"Loaded {len(dataframe)} rows")
+    dataframe_to_experiment(dataframe)
+    logger.info("Dataset saved successfully to data/datasets/experiment.json")
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Download dataset from S3/MinIO -> convert to Experiment JSON -> save to data/datasets/experiment.json"
-    )
+    parser = argparse.ArgumentParser(description="Download dataset and convert to Experiment JSON")
     parser.add_argument(
-        "bucket",
+        "source",
         type=str,
-        help="S3/MinIO bucket name containing the dataset",
+        help="Dataset source: s3://bucket/key, HTTP URL, or local file path",
     )
     parser.add_argument(
         "key",
         type=str,
-        help="S3/MinIO object key (path to dataset file in .csv / .json / .parquet format)",
+        nargs="?",
+        default=None,
+        help="(Legacy) S3 object key when first arg is a bucket name",
     )
     args = parser.parse_args()
 
-    main(args.bucket, args.key)
+    if args.key is not None:
+        # Legacy mode: setup.py <bucket> <key>
+        main(args.source, args.key)
+    else:
+        # New mode: setup.py <source>
+        main_auto(args.source)
