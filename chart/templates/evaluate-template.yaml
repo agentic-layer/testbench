@@ -12,6 +12,7 @@ spec:
     openApiBasePath:
       type: string
       description: "Base path for OpenAI API"
+      default: ""
 
   # Steps to execute
   steps:
