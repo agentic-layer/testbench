@@ -35,15 +35,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	runtimev1alpha1 "github.com/agentic-layer/agent-runtime-operator/api/v1alpha1"
 	testbenchv1alpha1 "github.com/agentic-layer/testbench/operator/api/v1alpha1"
 )
 
 const (
-	conditionReady         = "Ready"
-	conditionWorkflowReady = "WorkflowReady"
-	otelConfigMapName      = "otel-config"
-	otelEndpointKey        = "OTEL_EXPORTER_OTLP_ENDPOINT"
-	defaultAgentPort       = "8000"
+	conditionReady            = "Ready"
+	conditionWorkflowReady    = "WorkflowReady"
+	otelEndpointKey           = "OTEL_EXPORTER_OTLP_ENDPOINT"
+	defaultAgentPort          = "8000"
+	testkubeNamespace         = "testkube"
+	defaultAiGatewayNamespace = "ai-gateway"
 )
 
 var (
@@ -107,6 +109,7 @@ type ExperimentReconciler struct {
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=testworkflows.testkube.io,resources=testworkflows,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=tests.testkube.io,resources=testtriggers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=runtime.agentic-layer.ai,resources=aigateways,verbs=get;list;watch
 
 // Reconcile moves the cluster state closer to the desired state specified by the Experiment.
 func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -143,7 +146,11 @@ func (r *ExperimentReconciler) reconcileResources(
 	if err := r.reconcileConfigMap(ctx, experiment, generatedResources); err != nil {
 		return result, fmt.Errorf("reconciling ConfigMap: %w", err)
 	}
-	wfSkipped, err := r.reconcileTestWorkflow(ctx, experiment, generatedResources)
+	aiGateway, err := r.resolveAiGateway(ctx, experiment)
+	if err != nil {
+		return result, fmt.Errorf("resolving AiGateway: %w", err)
+	}
+	wfSkipped, err := r.reconcileTestWorkflow(ctx, experiment, aiGateway, generatedResources)
 	if err != nil {
 		result.workflowErr = err
 		return result, fmt.Errorf("reconciling TestWorkflow: %w", err)
@@ -165,13 +172,15 @@ func (r *ExperimentReconciler) reconcileConfigMap(
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
-			Namespace: experiment.Namespace,
+			Namespace: testkubeNamespace,
 		},
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
-		if err := controllerutil.SetControllerReference(experiment, cm, r.Scheme); err != nil {
-			return err
+		if experiment.Namespace == testkubeNamespace {
+			if err := controllerutil.SetControllerReference(experiment, cm, r.Scheme); err != nil {
+				return err
+			}
 		}
 		data, buildErr := r.buildExperimentJSON(experiment)
 		if buildErr != nil {
@@ -255,11 +264,14 @@ func (r *ExperimentReconciler) convertStep(step testbenchv1alpha1.Step) stepJSON
 func (r *ExperimentReconciler) reconcileTestWorkflow(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
+	aiGateway *runtimev1alpha1.AiGateway,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) (bool, error) {
-	workflow := r.buildTestWorkflow(experiment)
-	if err := controllerutil.SetControllerReference(experiment, workflow, r.Scheme); err != nil {
-		return false, err
+	workflow := r.buildTestWorkflow(experiment, aiGateway)
+	if experiment.Namespace == testkubeNamespace {
+		if err := controllerutil.SetControllerReference(experiment, workflow, r.Scheme); err != nil {
+			return false, err
+		}
 	}
 
 	existing := &unstructured.Unstructured{}
@@ -292,7 +304,7 @@ func (r *ExperimentReconciler) reconcileTestWorkflow(
 }
 
 // buildTestWorkflow constructs the desired TestWorkflow unstructured object.
-func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.Experiment) *unstructured.Unstructured {
+func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.Experiment, aiGateway *runtimev1alpha1.AiGateway) *unstructured.Unstructured {
 	agentURL := r.resolveAgentURL(experiment)
 
 	// Build the list of phase templates to chain.
@@ -305,6 +317,13 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 			},
 		})
 	}
+	evaluateTemplate := map[string]interface{}{"name": "evaluate-template"}
+	if aiGateway != nil {
+		evaluateTemplate["config"] = map[string]interface{}{
+			"openApiBasePath": buildAiGatewayServiceUrl(*aiGateway),
+		}
+	}
+
 	useTemplates = append(useTemplates,
 		map[string]interface{}{
 			"name": "run-template",
@@ -312,26 +331,24 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 				"agentUrl": agentURL,
 			},
 		},
-		map[string]interface{}{"name": "evaluate-template"},
+		evaluateTemplate,
 		map[string]interface{}{"name": "publish-template"},
 		map[string]interface{}{"name": "visualize-template"},
 	)
 
 	spec := map[string]interface{}{
-		"container": map[string]interface{}{
+		"use": useTemplates,
+	}
+
+	if experiment.Spec.OTLPEndpoint != "" {
+		spec["container"] = map[string]interface{}{
 			"env": []interface{}{
 				map[string]interface{}{
-					"name": otelEndpointKey,
-					"valueFrom": map[string]interface{}{
-						"configMapKeyRef": map[string]interface{}{
-							"name": otelConfigMapName,
-							"key":  otelEndpointKey,
-						},
-					},
+					"name":  otelEndpointKey,
+					"value": experiment.Spec.OTLPEndpoint,
 				},
 			},
-		},
-		"use": useTemplates,
+		}
 	}
 
 	// For scenarios mode, mount the pre-populated ConfigMap as the experiment file.
@@ -357,7 +374,7 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 			"kind":       testWorkflowGVK.Kind,
 			"metadata": map[string]interface{}{
 				"name":      experiment.Name + "-workflow",
-				"namespace": experiment.Namespace,
+				"namespace": testkubeNamespace,
 			},
 			"spec": spec,
 		},
@@ -378,7 +395,7 @@ func (r *ExperimentReconciler) reconcileTestTrigger(
 		existing := &unstructured.Unstructured{}
 		existing.SetGroupVersionKind(testTriggerGVK)
 		existing.SetName(triggerName)
-		existing.SetNamespace(experiment.Namespace)
+		existing.SetNamespace(testkubeNamespace)
 		if delErr := r.Delete(ctx, existing); delErr != nil && !errors.IsNotFound(delErr) {
 			if isCRDNotInstalled(delErr) {
 				return nil
@@ -389,13 +406,15 @@ func (r *ExperimentReconciler) reconcileTestTrigger(
 	}
 
 	trigger := r.buildTestTrigger(experiment)
-	if err := controllerutil.SetControllerReference(experiment, trigger, r.Scheme); err != nil {
-		return err
+	if experiment.Namespace == testkubeNamespace {
+		if err := controllerutil.SetControllerReference(experiment, trigger, r.Scheme); err != nil {
+			return err
+		}
 	}
 
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(testTriggerGVK)
-	err := r.Get(ctx, types.NamespacedName{Name: triggerName, Namespace: experiment.Namespace}, existing)
+	err := r.Get(ctx, types.NamespacedName{Name: triggerName, Namespace: testkubeNamespace}, existing)
 	if errors.IsNotFound(err) {
 		if createErr := r.Create(ctx, trigger); createErr != nil {
 			return createErr
@@ -440,7 +459,7 @@ func (r *ExperimentReconciler) buildTestTrigger(experiment *testbenchv1alpha1.Ex
 			"kind":       testTriggerGVK.Kind,
 			"metadata": map[string]interface{}{
 				"name":      experiment.Name + "-trigger",
-				"namespace": experiment.Namespace,
+				"namespace": testkubeNamespace,
 			},
 			"spec": map[string]interface{}{
 				"resource": "deployment",
@@ -454,7 +473,7 @@ func (r *ExperimentReconciler) buildTestTrigger(experiment *testbenchv1alpha1.Ex
 				"concurrencyPolicy": concurrencyPolicy,
 				"testSelector": map[string]interface{}{
 					"name":      experiment.Name + "-workflow",
-					"namespace": experiment.Namespace,
+					"namespace": testkubeNamespace,
 				},
 				"disabled": false,
 			},
@@ -540,6 +559,69 @@ func (r *ExperimentReconciler) resolveDatasetURL(experiment *testbenchv1alpha1.E
 		return fmt.Sprintf("s3://%s/%s", experiment.Spec.Dataset.S3.Bucket, experiment.Spec.Dataset.S3.Key)
 	}
 	return ""
+}
+
+// resolveAiGateway resolves the AiGateway resource for an experiment.
+func (r *ExperimentReconciler) resolveAiGateway(ctx context.Context, experiment *testbenchv1alpha1.Experiment) (*runtimev1alpha1.AiGateway, error) {
+	if experiment.Spec.AiGatewayRef != nil {
+		return r.resolveExplicitAiGateway(ctx, experiment.Spec.AiGatewayRef, experiment.Namespace)
+	}
+	return r.resolveDefaultAiGateway(ctx)
+}
+
+// resolveExplicitAiGateway resolves a specific AiGateway referenced by the experiment.
+func (r *ExperimentReconciler) resolveExplicitAiGateway(ctx context.Context, ref *corev1.ObjectReference, experimentNamespace string) (*runtimev1alpha1.AiGateway, error) {
+	namespace := ref.Namespace
+	if namespace == "" {
+		namespace = experimentNamespace
+	}
+
+	var aiGateway runtimev1alpha1.AiGateway
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      ref.Name,
+		Namespace: namespace,
+	}, &aiGateway)
+
+	if err != nil {
+		if apimeta.IsNoMatchError(err) {
+			return nil, fmt.Errorf("AiGateway CRD is not installed in the cluster")
+		}
+		return nil, fmt.Errorf("failed to resolve AiGateway %s/%s: %w", namespace, ref.Name, err)
+	}
+
+	return &aiGateway, nil
+}
+
+// resolveDefaultAiGateway searches for any AiGateway in the default ai-gateway namespace.
+func (r *ExperimentReconciler) resolveDefaultAiGateway(ctx context.Context) (*runtimev1alpha1.AiGateway, error) {
+	logger := log.FromContext(ctx)
+
+	var aiGatewayList runtimev1alpha1.AiGatewayList
+	err := r.List(ctx, &aiGatewayList, client.InNamespace(defaultAiGatewayNamespace))
+	if err != nil {
+		if apimeta.IsNoMatchError(err) {
+			logger.Info("AiGateway CRD is not installed, skipping default gateway resolution")
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to list AiGateways in namespace %s: %w", defaultAiGatewayNamespace, err)
+	}
+
+	if len(aiGatewayList.Items) == 0 {
+		return nil, nil
+	}
+
+	if len(aiGatewayList.Items) > 1 {
+		logger.Info("Multiple AiGateways found, selecting first one",
+			"selected", aiGatewayList.Items[0].Name,
+			"count", len(aiGatewayList.Items))
+	}
+
+	aiGateway := aiGatewayList.Items[0]
+	return &aiGateway, nil
+}
+
+func buildAiGatewayServiceUrl(aiGateway runtimev1alpha1.AiGateway) string {
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local.:%d", aiGateway.Name, aiGateway.Namespace, aiGateway.Spec.Port)
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	runtimev1alpha1 "github.com/agentic-layer/agent-runtime-operator/api/v1alpha1"
 	testbenchv1alpha1 "github.com/agentic-layer/testbench/operator/api/v1alpha1"
 )
 
@@ -599,6 +600,153 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(fetched.Spec.AiGatewayRef).NotTo(BeNil())
 			Expect(fetched.Spec.AiGatewayRef.Name).To(Equal("my-gateway"))
 			Expect(fetched.Spec.AiGatewayRef.Namespace).To(Equal("ai-gateway"))
+		})
+
+		It("should resolve an explicit AiGateway by ref", func() {
+			By("creating an AiGateway resource")
+			gw := &runtimev1alpha1.AiGateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-gateway",
+					Namespace: namespace,
+				},
+				Spec: runtimev1alpha1.AiGatewaySpec{
+					Port:     4000,
+					AiModels: []runtimev1alpha1.AiModel{{Name: "gpt-4", Provider: "openai"}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, gw)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, gw) }()
+
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AiGatewayRef: &corev1.ObjectReference{
+						Name:      "test-gateway",
+						Namespace: namespace,
+					},
+				},
+			}
+			resolved, err := r.resolveAiGateway(ctx, exp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resolved).NotTo(BeNil())
+			Expect(resolved.Name).To(Equal("test-gateway"))
+			Expect(resolved.Spec.Port).To(Equal(int32(4000)))
+		})
+
+		It("should resolve default AiGateway from ai-gateway namespace", func() {
+			By("creating the ai-gateway namespace")
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ai-gateway"}}
+			_ = k8sClient.Create(ctx, ns)
+
+			By("creating an AiGateway in ai-gateway namespace")
+			gw := &runtimev1alpha1.AiGateway{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "default-gw",
+					Namespace: "ai-gateway",
+				},
+				Spec: runtimev1alpha1.AiGatewaySpec{
+					Port:     80,
+					AiModels: []runtimev1alpha1.AiModel{{Name: "gpt-4", Provider: "openai"}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, gw)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, gw) }()
+
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace},
+				Spec:       testbenchv1alpha1.ExperimentSpec{},
+			}
+			resolved, err := r.resolveAiGateway(ctx, exp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resolved).NotTo(BeNil())
+			Expect(resolved.Name).To(Equal("default-gw"))
+		})
+
+		It("should return nil when no AiGateway exists", func() {
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace},
+				Spec:       testbenchv1alpha1.ExperimentSpec{},
+			}
+			resolved, err := r.resolveAiGateway(ctx, exp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resolved).To(BeNil())
+		})
+
+		It("should return error when explicit ref points to non-existent gateway", func() {
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AiGatewayRef: &corev1.ObjectReference{
+						Name:      "nonexistent",
+						Namespace: namespace,
+					},
+				},
+			}
+			_, err := r.resolveAiGateway(ctx, exp)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to resolve AiGateway"))
+		})
+
+		It("should set openApiBasePath on evaluate-template when AiGateway is resolved", func() {
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: "exp-gw-url", Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent", Namespace: "agents"},
+					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+				},
+			}
+			gw := &runtimev1alpha1.AiGateway{
+				ObjectMeta: metav1.ObjectMeta{Name: "my-gw", Namespace: "ai-gateway"},
+				Spec:       runtimev1alpha1.AiGatewaySpec{Port: 4000, AiModels: []runtimev1alpha1.AiModel{{Name: "gpt-4", Provider: "openai"}}},
+			}
+
+			wf := r.buildTestWorkflow(exp, gw)
+			spec := wf.Object["spec"].(map[string]interface{})
+			use := spec["use"].([]interface{})
+
+			var evalTemplate map[string]interface{}
+			for _, u := range use {
+				um := u.(map[string]interface{})
+				if um["name"] == "evaluate-template" {
+					evalTemplate = um
+					break
+				}
+			}
+			Expect(evalTemplate).NotTo(BeNil())
+			cfg := evalTemplate["config"].(map[string]interface{})
+			Expect(cfg["openApiBasePath"]).To(Equal("http://my-gw.ai-gateway.svc.cluster.local.:4000"))
+		})
+
+		It("should not set config on evaluate-template when no AiGateway", func() {
+			r := newReconciler()
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: "exp-no-gw", Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent", Namespace: "agents"},
+					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+				},
+			}
+
+			wf := r.buildTestWorkflow(exp, nil)
+			spec := wf.Object["spec"].(map[string]interface{})
+			use := spec["use"].([]interface{})
+
+			var evalTemplate map[string]interface{}
+			for _, u := range use {
+				um := u.(map[string]interface{})
+				if um["name"] == "evaluate-template" {
+					evalTemplate = um
+					break
+				}
+			}
+			Expect(evalTemplate).NotTo(BeNil())
+			_, hasConfig := evalTemplate["config"]
+			Expect(hasConfig).To(BeFalse())
 		})
 	})
 
