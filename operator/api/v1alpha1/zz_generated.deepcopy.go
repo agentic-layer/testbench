@@ -21,7 +21,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -123,6 +124,11 @@ func (in *ExperimentList) DeepCopyObject() runtime.Object {
 func (in *ExperimentSpec) DeepCopyInto(out *ExperimentSpec) {
 	*out = *in
 	out.AgentRef = in.AgentRef
+	if in.AiGatewayRef != nil {
+		in, out := &in.AiGatewayRef, &out.AiGatewayRef
+		*out = new(v1.ObjectReference)
+		**out = **in
+	}
 	if in.Dataset != nil {
 		in, out := &in.Dataset, &out.Dataset
 		*out = new(DatasetSource)
@@ -157,7 +163,7 @@ func (in *ExperimentStatus) DeepCopyInto(out *ExperimentStatus) {
 	*out = *in
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
-		*out = make([]v1.Condition, len(*in))
+		*out = make([]metav1.Condition, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}

@@ -569,6 +569,39 @@ var _ = Describe("Experiment Controller", func() {
 		})
 	})
 
+	Context("AiGateway resolution", func() {
+		It("should accept an Experiment with aiGatewayRef", func() {
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "exp-gw-ref",
+					Namespace: namespace,
+				},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent"},
+					AiGatewayRef: &corev1.ObjectReference{
+						Name:      "my-gateway",
+						Namespace: "ai-gateway",
+					},
+					Scenarios: []testbenchv1alpha1.Scenario{
+						{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			defer func() {
+				_ = k8sClient.Delete(ctx, exp)
+			}()
+
+			fetched := &testbenchv1alpha1.Experiment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: "exp-gw-ref", Namespace: namespace,
+			}, fetched)).To(Succeed())
+			Expect(fetched.Spec.AiGatewayRef).NotTo(BeNil())
+			Expect(fetched.Spec.AiGatewayRef.Name).To(Equal("my-gateway"))
+			Expect(fetched.Spec.AiGatewayRef.Namespace).To(Equal("ai-gateway"))
+		})
+	})
+
 	Context("OTel env var injection", func() {
 		const expName = "exp-otel"
 
@@ -576,12 +609,13 @@ var _ = Describe("Experiment Controller", func() {
 			cleanupExperiment(expName)
 		})
 
-		It("should inject OTEL_EXPORTER_OTLP_ENDPOINT from otel-config ConfigMap", func() {
+		It("should inject OTEL_EXPORTER_OTLP_ENDPOINT as direct value from spec.otlpEndpoint", func() {
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
-					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent"},
-					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+					AgentRef:     testbenchv1alpha1.AgentRef{Name: "agent"},
+					OTLPEndpoint: "http://lgtm.monitoring.svc.cluster.local:4318",
+					Scenarios:    []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
@@ -597,10 +631,27 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(envList).To(HaveLen(1))
 			envVar := envList[0].(map[string]interface{})
 			Expect(envVar["name"]).To(Equal(otelEndpointKey))
-			valueFrom := envVar["valueFrom"].(map[string]interface{})
-			cmRef := valueFrom["configMapKeyRef"].(map[string]interface{})
-			Expect(cmRef["name"]).To(Equal(otelConfigMapName))
-			Expect(cmRef["key"]).To(Equal(otelEndpointKey))
+			Expect(envVar["value"]).To(Equal("http://lgtm.monitoring.svc.cluster.local:4318"))
+		})
+
+		It("should omit container env when otlpEndpoint is not set", func() {
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent"},
+					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+			_, hasContainer := spec["container"]
+			Expect(hasContainer).To(BeFalse(), "spec.container should be absent when otlpEndpoint is not set")
 		})
 	})
 })

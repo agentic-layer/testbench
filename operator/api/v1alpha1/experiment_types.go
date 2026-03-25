@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -160,6 +161,11 @@ type ExperimentSpec struct {
 	// +kubebuilder:validation:Required
 	AgentRef AgentRef `json:"agentRef"`
 
+	// AiGatewayRef references an AiGateway resource for LLM access during evaluation.
+	// Only Name and Namespace fields are used.
+	// +optional
+	AiGatewayRef *corev1.ObjectReference `json:"aiGatewayRef,omitempty"`
+
 	// Source of the test dataset (mutually exclusive with scenarios)
 	// +optional
 	Dataset *DatasetSource `json:"dataset,omitempty"`
@@ -178,6 +184,10 @@ type ExperimentSpec struct {
 	// Inline test scenarios (mutually exclusive with dataset)
 	// +optional
 	Scenarios []Scenario `json:"scenarios,omitempty"`
+
+	// OTLP endpoint URL for publishing metrics (e.g., "http://lgtm.monitoring.svc.cluster.local:4318")
+	// +optional
+	OTLPEndpoint string `json:"otlpEndpoint,omitempty"`
 
 	// Trigger configuration
 	// +optional
