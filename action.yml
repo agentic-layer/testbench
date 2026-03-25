@@ -1,0 +1,313 @@
+name: 'Agent Evaluate'
+description: 'Evaluate A2A-compatible agents using the testbench 5-phase pipeline'
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  dataset:
+    description: 'Dataset source: S3 URI (s3://bucket/key), HTTP URL, or local file path. Skip setup phase if empty.'
+    required: false
+    default: ''
+  agent-url:
+    description: 'A2A endpoint URL of the agent to evaluate. Skip run phase if empty.'
+    required: false
+    default: ''
+  agent-image:
+    description: 'Docker image to start as agent sidecar (alternative to agent-url).'
+    required: false
+    default: ''
+  agent-port:
+    description: 'Port the agent sidecar listens on.'
+    required: false
+    default: '8000'
+  experiment-file:
+    description: 'Path to pre-built experiment JSON. Used when skipping setup and/or run phases.'
+    required: false
+    default: ''
+  model:
+    description: 'LLM model for evaluation (overrides experiment config).'
+    required: false
+    default: ''
+  openai-base-url:
+    description: 'OpenAI-compatible API base URL (AI Gateway).'
+    required: true
+  fail-on-threshold:
+    description: 'Fail the action if any metric is below its threshold.'
+    required: false
+    default: 'true'
+  publish:
+    description: 'Enable OTLP metric publishing.'
+    required: false
+    default: 'false'
+  otlp-endpoint:
+    description: 'OTLP collector endpoint (required if publish is true).'
+    required: false
+    default: ''
+  visualize:
+    description: 'Generate HTML evaluation report.'
+    required: false
+    default: 'true'
+  image:
+    description: 'Testbench Docker image to use.'
+    required: false
+    default: 'ghcr.io/agentic-layer/testbench/testworkflows:latest'
+  image-tag:
+    description: 'Override image tag (e.g., pin to a release).'
+    required: false
+    default: ''
+
+outputs:
+  passed:
+    description: 'Whether all metrics met their thresholds (true/false)'
+    value: ${{ steps.threshold-check.outputs.passed }}
+  report-path:
+    description: 'Path to the generated HTML report'
+    value: ${{ steps.threshold-check.outputs.report-path }}
+  evaluated-experiment-path:
+    description: 'Path to the evaluated experiment JSON'
+    value: ${{ steps.threshold-check.outputs.evaluated-experiment-path }}
+  summary:
+    description: 'JSON string with per-metric scores'
+    value: ${{ steps.threshold-check.outputs.summary }}
+
+runs:
+  using: 'composite'
+  steps:
+    # Step 1: Setup inputs — create data dir, resolve image
+    - name: Setup inputs
+      id: setup-inputs
+      shell: bash
+      run: |
+        DATA_DIR="${RUNNER_TEMP}/agent-evaluate-data"
+        mkdir -p "$DATA_DIR/datasets" "$DATA_DIR/experiments" "$DATA_DIR/results"
+        echo "data-dir=$DATA_DIR" >> "$GITHUB_OUTPUT"
+
+        # Resolve image reference
+        IMAGE="${{ inputs.image }}"
+        if [ -n "${{ inputs.image-tag }}" ]; then
+          IMAGE="${IMAGE%%:*}:${{ inputs.image-tag }}"
+        fi
+        echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+        # Validate: need either dataset or experiment-file
+        if [ -z "${{ inputs.dataset }}" ] && [ -z "${{ inputs.experiment-file }}" ]; then
+          echo "::error::Either 'dataset' or 'experiment-file' must be provided"
+          exit 1
+        fi
+
+        # Determine if run phase will execute
+        RUN_PHASE="false"
+        if [ -n "${{ inputs.agent-url }}" ] || [ -n "${{ inputs.agent-image }}" ]; then
+          RUN_PHASE="true"
+        fi
+        echo "run-phase=$RUN_PHASE" >> "$GITHUB_OUTPUT"
+
+    # Step 2: Start agent sidecar (if agent-image provided)
+    - name: Start agent sidecar
+      id: agent-sidecar
+      if: inputs.agent-image != ''
+      shell: bash
+      run: |
+        echo "Starting agent sidecar: ${{ inputs.agent-image }}"
+        CONTAINER_ID=$(docker run -d --network host \
+          "${{ inputs.agent-image }}")
+        echo "container-id=$CONTAINER_ID" >> "$GITHUB_OUTPUT"
+
+        # Wait for agent to be ready
+        echo "Waiting for agent on port ${{ inputs.agent-port }}..."
+        for i in $(seq 1 30); do
+          if curl -s "http://localhost:${{ inputs.agent-port }}" > /dev/null 2>&1; then
+            echo "Agent is ready"
+            break
+          fi
+          if [ "$i" -eq 30 ]; then
+            echo "::error::Agent sidecar failed to start within 30 seconds"
+            docker logs "$CONTAINER_ID"
+            exit 1
+          fi
+          sleep 1
+        done
+
+        echo "agent-url=http://localhost:${{ inputs.agent-port }}" >> "$GITHUB_OUTPUT"
+
+    # Step 3: Setup phase (if dataset provided)
+    - name: Setup phase
+      if: inputs.dataset != ''
+      shell: bash
+      run: |
+        DATA_DIR="${{ steps.setup-inputs.outputs.data-dir }}"
+        IMAGE="${{ steps.setup-inputs.outputs.image }}"
+
+        # If dataset is a local file, copy it into the data dir first
+        DATASET="${{ inputs.dataset }}"
+        if [ -f "$DATASET" ]; then
+          cp "$DATASET" "$DATA_DIR/datasets/$(basename "$DATASET")"
+          DATASET="/app/data/datasets/$(basename "$DATASET")"
+        fi
+
+        docker run --rm \
+          --network host \
+          -v "$DATA_DIR:/app/data" \
+          -e MINIO_ROOT_USER="${MINIO_ROOT_USER:-}" \
+          -e MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-}" \
+          -e MINIO_ENDPOINT="${MINIO_ENDPOINT:-}" \
+          -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}" \
+          -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}" \
+          "$IMAGE" \
+          setup.py "$DATASET"
+
+    # Step 4: Copy experiment file (if provided, skipping setup/run)
+    - name: Copy experiment file
+      if: inputs.experiment-file != '' && inputs.dataset == ''
+      shell: bash
+      run: |
+        DATA_DIR="${{ steps.setup-inputs.outputs.data-dir }}"
+        RUN_PHASE="${{ steps.setup-inputs.outputs.run-phase }}"
+        SRC="${{ inputs.experiment-file }}"
+
+        if [ ! -f "$SRC" ]; then
+          echo "::error::Experiment file not found: $SRC"
+          exit 1
+        fi
+
+        if [ "$RUN_PHASE" = "true" ]; then
+          # Run phase will execute — file is an Experiment
+          cp "$SRC" "$DATA_DIR/datasets/experiment.json"
+        else
+          # Run phase skipped — file must be an ExecutedExperiment
+          # Validate it has turns (basic structure check)
+          if ! jq -e '.scenarios[0].steps[0].turns' "$SRC" > /dev/null 2>&1; then
+            echo "::error::When skipping setup and run phases, experiment-file must be an ExecutedExperiment (must contain scenarios[].steps[].turns)"
+            exit 1
+          fi
+          cp "$SRC" "$DATA_DIR/experiments/executed_experiment.json"
+        fi
+
+    # Step 5: Run phase
+    - name: Run phase
+      if: steps.setup-inputs.outputs.run-phase == 'true'
+      shell: bash
+      run: |
+        DATA_DIR="${{ steps.setup-inputs.outputs.data-dir }}"
+        IMAGE="${{ steps.setup-inputs.outputs.image }}"
+
+        # Determine agent URL
+        AGENT_URL="${{ inputs.agent-url }}"
+        if [ -z "$AGENT_URL" ] && [ -n "${{ steps.agent-sidecar.outputs.agent-url }}" ]; then
+          AGENT_URL="${{ steps.agent-sidecar.outputs.agent-url }}"
+        fi
+
+        docker run --rm \
+          --network host \
+          -v "$DATA_DIR:/app/data" \
+          -e OTEL_EXPORTER_OTLP_ENDPOINT="${{ inputs.otlp-endpoint }}" \
+          "$IMAGE" \
+          run.py "$AGENT_URL" "${{ github.workflow }}"
+
+    # Step 6: Evaluate phase (always runs)
+    - name: Evaluate phase
+      shell: bash
+      run: |
+        DATA_DIR="${{ steps.setup-inputs.outputs.data-dir }}"
+        IMAGE="${{ steps.setup-inputs.outputs.image }}"
+
+        MODEL_ARG=""
+        if [ -n "${{ inputs.model }}" ]; then
+          MODEL_ARG="--model ${{ inputs.model }}"
+        fi
+
+        docker run --rm \
+          --network host \
+          -v "$DATA_DIR:/app/data" \
+          -e OPENAI_BASE_URL="${{ inputs.openai-base-url }}" \
+          -e OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
+          -e GOOGLE_API_KEY="${GOOGLE_API_KEY:-}" \
+          "$IMAGE" \
+          evaluate.py $MODEL_ARG
+
+    # Step 7: Threshold check
+    - name: Threshold check
+      id: threshold-check
+      shell: bash
+      run: |
+        DATA_DIR="${{ steps.setup-inputs.outputs.data-dir }}"
+        EVAL_FILE="$DATA_DIR/experiments/evaluated_experiment.json"
+
+        if [ ! -f "$EVAL_FILE" ]; then
+          echo "::error::Evaluated experiment file not found"
+          exit 1
+        fi
+
+        # Extract metrics using jq — use the authoritative .result.result field
+        SUMMARY=$(jq '[.scenarios[].steps[].evaluations[] | {name: .metric.metric_name, score: .result.score, threshold: .metric.threshold, passed: (.result.result == "pass")}]' "$EVAL_FILE")
+
+        # Check if all passed
+        ALL_PASSED=$(echo "$SUMMARY" | jq 'all(.passed)')
+
+        # Set outputs
+        echo "passed=$ALL_PASSED" >> "$GITHUB_OUTPUT"
+        echo "summary=$(echo "$SUMMARY" | jq -c '.')" >> "$GITHUB_OUTPUT"
+        echo "evaluated-experiment-path=$EVAL_FILE" >> "$GITHUB_OUTPUT"
+        echo "report-path=$DATA_DIR/results/evaluation_report.html" >> "$GITHUB_OUTPUT"
+
+        # Write job summary
+        echo "## Agent Evaluation Results" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$ALL_PASSED" = "true" ]; then
+          echo "**Status: PASSED**" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "**Status: FAILED**" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Metric | Score | Threshold | Status |" >> "$GITHUB_STEP_SUMMARY"
+        echo "|--------|-------|-----------|--------|" >> "$GITHUB_STEP_SUMMARY"
+        echo "$SUMMARY" | jq -r '.[] | "| \(.name) | \(.score) | \(.threshold // "N/A") | \(if .passed then "PASS" else "FAIL" end) |"' >> "$GITHUB_STEP_SUMMARY"
+
+        # Fail if threshold not met
+        if [ "${{ inputs.fail-on-threshold }}" = "true" ] && [ "$ALL_PASSED" = "false" ]; then
+          echo "::error::One or more metrics failed their threshold"
+          exit 1
+        fi
+
+    # Step 8: Publish phase (optional)
+    - name: Publish phase
+      if: inputs.publish == 'true'
+      shell: bash
+      run: |
+        DATA_DIR="${{ steps.setup-inputs.outputs.data-dir }}"
+        IMAGE="${{ steps.setup-inputs.outputs.image }}"
+
+        if [ -z "${{ inputs.otlp-endpoint }}" ]; then
+          echo "::warning::publish=true but otlp-endpoint is empty, skipping"
+          exit 0
+        fi
+
+        docker run --rm \
+          --network host \
+          -v "$DATA_DIR:/app/data" \
+          -e OTEL_EXPORTER_OTLP_ENDPOINT="${{ inputs.otlp-endpoint }}" \
+          "$IMAGE" \
+          publish.py "${{ github.workflow }}" "${{ github.run_id }}" "${{ github.run_number }}"
+
+    # Step 9: Visualize phase (optional)
+    - name: Visualize phase
+      if: inputs.visualize == 'true'
+      shell: bash
+      run: |
+        DATA_DIR="${{ steps.setup-inputs.outputs.data-dir }}"
+        IMAGE="${{ steps.setup-inputs.outputs.image }}"
+
+        docker run --rm \
+          --network host \
+          -v "$DATA_DIR:/app/data" \
+          "$IMAGE" \
+          visualize.py "${{ github.workflow }}" "${{ github.run_id }}" "${{ github.run_number }}"
+
+    # Step 10: Cleanup agent sidecar
+    - name: Cleanup agent sidecar
+      if: always() && steps.agent-sidecar.outputs.container-id != ''
+      shell: bash
+      run: |
+        docker stop "${{ steps.agent-sidecar.outputs.container-id }}" || true
+        docker rm "${{ steps.agent-sidecar.outputs.container-id }}" || true
