@@ -35,6 +35,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	runtimev1alpha1 "github.com/agentic-layer/agent-runtime-operator/api/v1alpha1"
 	testbenchv1alpha1 "github.com/agentic-layer/testbench/operator/api/v1alpha1"
 	"github.com/agentic-layer/testbench/operator/internal/controller"
 	// +kubebuilder:scaffold:imports
@@ -49,6 +50,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(testbenchv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(runtimev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
