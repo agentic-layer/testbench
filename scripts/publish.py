@@ -235,6 +235,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "execution_number",
+        type=int,
         help="Testkube execution number for this workflow run",
     )
     parser.add_argument(
