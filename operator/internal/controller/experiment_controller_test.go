@@ -82,27 +82,29 @@ var _ = Describe("Experiment Controller", func() {
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
-					AgentRef:         testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
-					LLMAsAJudgeModel: "gemini-2.5-flash-lite",
-					DefaultThreshold: 0.9,
-					Scenarios: []testbenchv1alpha1.Scenario{
-						{
-							Name: "test scenario",
-							Steps: []testbenchv1alpha1.Step{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
+					Dataset: testbenchv1alpha1.DatasetSource{
+						Inline: &testbenchv1alpha1.InlineDataset{
+							Scenarios: []testbenchv1alpha1.Scenario{
 								{
-									Input: "What is the weather?",
-									Reference: &testbenchv1alpha1.Reference{
-										Response: "It is sunny",
-										Topics:   []string{"weather"},
-										ToolCalls: []testbenchv1alpha1.ToolCall{
-											{
-												Name: "get_weather",
-												Args: runtime.RawExtension{Raw: []byte(`{"city":"NY"}`)},
+									Name: "test scenario",
+									Steps: []testbenchv1alpha1.Step{
+										{
+											Input: "What is the weather?",
+											Reference: &testbenchv1alpha1.Reference{
+												Response: "It is sunny",
+												Topics:   []string{"weather"},
+												ToolCalls: []testbenchv1alpha1.ToolCall{
+													{
+														Name: "get_weather",
+														Args: runtime.RawExtension{Raw: []byte(`{"city":"NY"}`)},
+													},
+												},
+											},
+											Metrics: []testbenchv1alpha1.Metric{
+												{MetricName: "AgentGoalAccuracy"},
 											},
 										},
-									},
-									Metrics: []testbenchv1alpha1.Metric{
-										{MetricName: "AgentGoalAccuracy"},
 									},
 								},
 							},
@@ -129,8 +131,6 @@ var _ = Describe("Experiment Controller", func() {
 			By("verifying the experiment.json content")
 			var expJSON experimentJSON
 			Expect(json.Unmarshal([]byte(cm.Data["experiment.json"]), &expJSON)).To(Succeed())
-			Expect(expJSON.LLMAsAJudgeModel).To(Equal("gemini-2.5-flash-lite"))
-			Expect(expJSON.DefaultThreshold).To(Equal(0.9))
 			Expect(expJSON.Scenarios).To(HaveLen(1))
 			Expect(expJSON.Scenarios[0].Name).To(Equal("test scenario"))
 			Expect(expJSON.Scenarios[0].Steps).To(HaveLen(1))
@@ -274,7 +274,7 @@ var _ = Describe("Experiment Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
 					AgentRef: testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
-					Dataset: &testbenchv1alpha1.DatasetSource{
+					Dataset: testbenchv1alpha1.DatasetSource{
 						URL: "http://data-server/dataset.csv",
 					},
 				},
@@ -286,16 +286,12 @@ var _ = Describe("Experiment Controller", func() {
 			cleanupExperiment(expName)
 		})
 
-		It("should create a ConfigMap with empty scenarios as placeholder", func() {
+		It("should not create a ConfigMap in URL mode", func() {
 			Expect(reconcileExperiment(expName)).To(Succeed())
 
 			cm := &corev1.ConfigMap{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-experiment", Namespace: namespace}, cm)).To(Succeed())
-			Expect(cm.Data).To(HaveKey("experiment.json"))
-
-			var expJSON experimentJSON
-			Expect(json.Unmarshal([]byte(cm.Data["experiment.json"]), &expJSON)).To(Succeed())
-			Expect(expJSON.Scenarios).To(BeEmpty())
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-experiment", Namespace: namespace}, cm)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 
 		It("should create a TestWorkflow with setup-template and correct datasetUrl", func() {
@@ -322,7 +318,7 @@ var _ = Describe("Experiment Controller", func() {
 		It("should resolve S3 dataset URL correctly", func() {
 			exp := &testbenchv1alpha1.Experiment{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
-			exp.Spec.Dataset = &testbenchv1alpha1.DatasetSource{
+			exp.Spec.Dataset = testbenchv1alpha1.DatasetSource{
 				S3: &testbenchv1alpha1.S3Source{Bucket: "my-bucket", Key: "data/dataset.csv"},
 			}
 			Expect(k8sClient.Update(ctx, exp)).To(Succeed())
@@ -352,9 +348,7 @@ var _ = Describe("Experiment Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
 					AgentRef: testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
-					Scenarios: []testbenchv1alpha1.Scenario{
-						{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
-					},
+					Dataset: testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
 					Trigger: trigger,
 				},
 			}
@@ -472,8 +466,8 @@ var _ = Describe("Experiment Controller", func() {
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
-					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent"},
-					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent"},
+					Dataset:  testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
@@ -525,19 +519,22 @@ var _ = Describe("Experiment Controller", func() {
 			r := newReconciler()
 			exp := &testbenchv1alpha1.Experiment{
 				Spec: testbenchv1alpha1.ExperimentSpec{
-					DefaultThreshold: 0.8,
-					Scenarios: []testbenchv1alpha1.Scenario{
-						{
-							Name: "s",
-							Steps: []testbenchv1alpha1.Step{
+					Dataset: testbenchv1alpha1.DatasetSource{
+						Inline: &testbenchv1alpha1.InlineDataset{
+							Scenarios: []testbenchv1alpha1.Scenario{
 								{
-									Input:        "q",
-									CustomValues: runtime.RawExtension{Raw: []byte(`{"key":"value"}`)},
-									Metrics: []testbenchv1alpha1.Metric{
+									Name: "s",
+									Steps: []testbenchv1alpha1.Step{
 										{
-											MetricName: "M",
-											Threshold:  0.7,
-											Parameters: runtime.RawExtension{Raw: []byte(`{"mode":"precision"}`)},
+											Input:        "q",
+											CustomValues: runtime.RawExtension{Raw: []byte(`{"key":"value"}`)},
+											Metrics: []testbenchv1alpha1.Metric{
+												{
+													MetricName: "M",
+													Threshold:  0.7,
+													Parameters: runtime.RawExtension{Raw: []byte(`{"mode":"precision"}`)},
+												},
+											},
 										},
 									},
 								},
@@ -551,23 +548,10 @@ var _ = Describe("Experiment Controller", func() {
 
 			var result experimentJSON
 			Expect(json.Unmarshal([]byte(data), &result)).To(Succeed())
-			Expect(result.DefaultThreshold).To(Equal(0.8))
 			Expect(result.Scenarios[0].Steps[0].CustomValues).To(MatchJSON(`{"key":"value"}`))
 			Expect(result.Scenarios[0].Steps[0].Metrics[0].Parameters).To(MatchJSON(`{"mode":"precision"}`))
 		})
 
-		It("should produce empty scenarios list for dataset mode", func() {
-			r := newReconciler()
-			exp := &testbenchv1alpha1.Experiment{
-				Spec: testbenchv1alpha1.ExperimentSpec{
-					DefaultThreshold: 0.9,
-					Dataset:          &testbenchv1alpha1.DatasetSource{URL: "http://example.com/data.csv"},
-				},
-			}
-			data, err := r.buildExperimentJSON(exp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(data).To(ContainSubstring(`"scenarios": []`))
-		})
 	})
 
 	Context("AiGateway resolution", func() {
@@ -583,9 +567,7 @@ var _ = Describe("Experiment Controller", func() {
 						Name:      "my-gateway",
 						Namespace: "ai-gateway",
 					},
-					Scenarios: []testbenchv1alpha1.Scenario{
-						{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
-					},
+					Dataset: testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
@@ -696,8 +678,8 @@ var _ = Describe("Experiment Controller", func() {
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: "exp-gw-url", Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
-					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent", Namespace: "agents"},
-					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent", Namespace: "agents"},
+					Dataset:  testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
 				},
 			}
 			gw := &runtimev1alpha1.AiGateway{
@@ -727,8 +709,8 @@ var _ = Describe("Experiment Controller", func() {
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: "exp-no-gw", Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
-					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent", Namespace: "agents"},
-					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent", Namespace: "agents"},
+					Dataset:  testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
 				},
 			}
 
@@ -763,7 +745,7 @@ var _ = Describe("Experiment Controller", func() {
 				Spec: testbenchv1alpha1.ExperimentSpec{
 					AgentRef:     testbenchv1alpha1.AgentRef{Name: "agent"},
 					OTLPEndpoint: "http://lgtm.monitoring.svc.cluster.local:4318",
-					Scenarios:    []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+					Dataset:      testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
@@ -786,8 +768,8 @@ var _ = Describe("Experiment Controller", func() {
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
-					AgentRef:  testbenchv1alpha1.AgentRef{Name: "agent"},
-					Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}},
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent"},
+					Dataset:  testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
