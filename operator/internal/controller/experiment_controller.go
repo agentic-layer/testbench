@@ -64,7 +64,7 @@ var (
 // experimentJSON is the JSON representation of experiment.json consumed by testbench scripts.
 type experimentJSON struct {
 	LLMAsAJudgeModel string         `json:"llm_as_a_judge_model,omitempty"`
-	DefaultThreshold float64        `json:"default_threshold"`
+	DefaultThreshold *float64       `json:"default_threshold,omitempty"`
 	Scenarios        []scenarioJSON `json:"scenarios"`
 }
 
@@ -162,13 +162,29 @@ func (r *ExperimentReconciler) reconcileResources(
 	return result, nil
 }
 
-// reconcileConfigMap creates or updates the ConfigMap holding experiment.json.
+// reconcileConfigMap creates or updates the ConfigMap holding experiment.json for inline mode,
+// or deletes a stale ConfigMap when switching to S3/URL mode.
 func (r *ExperimentReconciler) reconcileConfigMap(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) error {
 	cmName := experiment.Name + "-experiment"
+
+	if experiment.Spec.Dataset.Inline == nil {
+		// Delete stale ConfigMap if it exists (mode switched from inline to S3/URL).
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cmName,
+				Namespace: testkubeNamespace,
+			},
+		}
+		if err := r.Delete(ctx, cm); err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	}
+
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
@@ -203,15 +219,16 @@ func (r *ExperimentReconciler) reconcileConfigMap(
 	return nil
 }
 
-// buildExperimentJSON serializes the Experiment spec scenarios into the experiment.json format
-// expected by the testbench scripts. For dataset mode, it returns an empty scenarios list.
+// buildExperimentJSON serializes the InlineDataset into the experiment.json format
+// expected by the testbench scripts.
 func (r *ExperimentReconciler) buildExperimentJSON(experiment *testbenchv1alpha1.Experiment) (string, error) {
+	inline := experiment.Spec.Dataset.Inline
 	exp := experimentJSON{
-		LLMAsAJudgeModel: experiment.Spec.LLMAsAJudgeModel,
-		DefaultThreshold: experiment.Spec.DefaultThreshold,
-		Scenarios:        make([]scenarioJSON, 0, len(experiment.Spec.Scenarios)),
+		LLMAsAJudgeModel: inline.LLMAsAJudgeModel,
+		DefaultThreshold: inline.DefaultThreshold,
+		Scenarios:        make([]scenarioJSON, 0, len(inline.Scenarios)),
 	}
-	for _, scenario := range experiment.Spec.Scenarios {
+	for _, scenario := range inline.Scenarios {
 		sj := scenarioJSON{
 			Name:  scenario.Name,
 			Steps: make([]stepJSON, 0, len(scenario.Steps)),
@@ -309,7 +326,7 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 
 	// Build the list of phase templates to chain.
 	var useTemplates []interface{}
-	if experiment.Spec.Dataset != nil {
+	if experiment.Spec.Dataset.Inline == nil {
 		useTemplates = append(useTemplates, map[string]interface{}{
 			"name": "setup-template",
 			"config": map[string]interface{}{
@@ -351,8 +368,8 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 		}
 	}
 
-	// For scenarios mode, mount the pre-populated ConfigMap as the experiment file.
-	if experiment.Spec.Dataset == nil {
+	// For inline mode, mount the pre-populated ConfigMap as the experiment file.
+	if experiment.Spec.Dataset.Inline != nil {
 		spec["content"] = map[string]interface{}{
 			"files": []interface{}{
 				map[string]interface{}{
@@ -551,9 +568,6 @@ func (r *ExperimentReconciler) resolveAgentURL(experiment *testbenchv1alpha1.Exp
 
 // resolveDatasetURL extracts the dataset URL from the DatasetSource.
 func (r *ExperimentReconciler) resolveDatasetURL(experiment *testbenchv1alpha1.Experiment) string {
-	if experiment.Spec.Dataset == nil {
-		return ""
-	}
 	if experiment.Spec.Dataset.URL != "" {
 		return experiment.Spec.Dataset.URL
 	}
