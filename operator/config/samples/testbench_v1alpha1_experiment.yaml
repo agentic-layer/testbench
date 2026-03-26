@@ -9,72 +9,77 @@ spec:
   agentRef:
     name: weather-agent
     namespace: sample-agents
+  aiGatewayRef:
+    name: ai-gateway
+    namespace: ai-gateway
   otlpEndpoint: http://lgtm.monitoring.svc.cluster.local:4318
-  llmAsAJudgeModel: gemini-2.5-flash-lite
-  defaultThreshold: 0.9
-  scenarios:
-    - name: "Weather in New York"
-      steps:
-        - input: "What is the weather like in New York right now?"
-          reference:
-            toolCalls:
-              - name: get_weather
-                args:
-                  city: "New York"
-            topics:
-              - weather
-          metrics:
-            - metricName: AgentGoalAccuracyWithoutReference
-            - metricName: ToolCallAccuracy
-            - metricName: TopicAdherence
-              parameters:
-                mode: precision
-    - name: "Weather in Bangkok (unavailable)"
-      steps:
-        - input: "What is the weather like in Bangkok right now?"
-          reference:
-            toolCalls:
-              - name: get_weather
-                args:
-                  city: "New York"
-            topics:
-              - time
-          metrics:
-            - metricName: AgentGoalAccuracyWithoutReference
-            - metricName: ToolCallAccuracy
-            - metricName: TopicAdherence
-              parameters:
-                mode: precision
-    - name: "Weather in New York (alt reference)"
-      steps:
-        - input: "What is the weather like in New York right now?"
-          reference:
-            toolCalls:
-              - name: get_current_time
-                args:
-                  city: "New York"
-          metrics:
-            - metricName: AgentGoalAccuracyWithoutReference
-            - metricName: ToolCallAccuracy
-    - name: "Weather then time in New York (multi-step)"
-      steps:
-        - input: "What is the weather like in New York right now?"
-          reference:
-            toolCalls:
-              - name: get_weather
-                args:
-                  city: "New York"
-          metrics:
-            - metricName: AgentGoalAccuracyWithoutReference
-            - metricName: ToolCallAccuracy
-        - input: "What time is it in New York?"
-          reference:
-            toolCalls:
-              - name: get_current_time
-                args:
-                  city: "New York"
-          metrics:
-            - metricName: AgentGoalAccuracyWithoutReference
-            - metricName: ToolCallAccuracy
+  dataset:
+    inline:
+      llmAsAJudgeModel: gemini-2.5-flash-lite
+      defaultThreshold: 0.9
+      scenarios:
+        - name: "Weather in New York"
+          steps:
+            - input: "What is the weather like in New York right now?"
+              reference:
+                toolCalls:
+                  - name: get_weather
+                    args:
+                      city: "New York"
+                topics:
+                  - weather
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: ToolCallAccuracy
+                - metricName: TopicAdherence
+                  parameters:
+                    mode: precision
+        - name: "Weather in Bangkok (unavailable)"
+          steps:
+            - input: "What is the weather like in Bangkok right now?"
+              reference:
+                toolCalls:
+                  - name: get_weather
+                    args:
+                      city: "New York"
+                topics:
+                  - time
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: ToolCallAccuracy
+                - metricName: TopicAdherence
+                  parameters:
+                    mode: precision
+        - name: "Weather in New York (alt reference)"
+          steps:
+            - input: "What is the weather like in New York right now?"
+              reference:
+                toolCalls:
+                  - name: get_current_time
+                    args:
+                      city: "New York"
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: ToolCallAccuracy
+        - name: "Weather then time in New York (multi-step)"
+          steps:
+            - input: "What is the weather like in New York right now?"
+              reference:
+                toolCalls:
+                  - name: get_weather
+                    args:
+                      city: "New York"
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: ToolCallAccuracy
+            - input: "What time is it in New York?"
+              reference:
+                toolCalls:
+                  - name: get_current_time
+                    args:
+                      city: "New York"
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: ToolCallAccuracy
   trigger:
     enabled: true
