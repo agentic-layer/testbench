@@ -109,8 +109,106 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               dataset:
-                description: Source of the test dataset (mutually exclusive with scenarios)
+                description: Source of the test dataset
                 properties:
+                  inline:
+                    description: Inline dataset with scenarios
+                    properties:
+                      defaultThreshold:
+                        description: Default threshold for all metrics (0.0-1.0)
+                        maximum: 1
+                        minimum: 0
+                        type: number
+                      llmAsAJudgeModel:
+                        description: LLM model used for evaluation (e.g., "gemini-2.5-flash-lite")
+                        type: string
+                      scenarios:
+                        description: Test scenarios
+                        items:
+                          description: Scenario represents a test scenario containing
+                            multiple steps
+                          properties:
+                            name:
+                              description: Name of the scenario
+                              type: string
+                            steps:
+                              description: Steps in this scenario
+                              items:
+                                description: Step represents a single test step within
+                                  a scenario
+                                properties:
+                                  customValues:
+                                    description: Custom key-value pairs (e.g., retrieved_contexts)
+                                    x-kubernetes-preserve-unknown-fields: true
+                                  input:
+                                    description: User input to the agent
+                                    type: string
+                                  metrics:
+                                    description: Metrics to evaluate for this step
+                                    items:
+                                      description: Metric defines a single metric
+                                        evaluation configuration
+                                      properties:
+                                        metricName:
+                                          description: Name of the metric (e.g., "ragas_faithfulness",
+                                            "tool_check")
+                                          type: string
+                                        parameters:
+                                          description: Additional parameters for the
+                                            metric
+                                          x-kubernetes-preserve-unknown-fields: true
+                                        threshold:
+                                          description: Threshold for pass/fail (0.0-1.0)
+                                          maximum: 1
+                                          minimum: 0
+                                          type: number
+                                      required:
+                                      - metricName
+                                      type: object
+                                    type: array
+                                  reference:
+                                    description: Expected reference data for evaluation
+                                    properties:
+                                      response:
+                                        description: Expected response text
+                                        type: string
+                                      toolCalls:
+                                        description: Expected tool calls
+                                        items:
+                                          description: ToolCall represents an expected
+                                            tool invocation
+                                          properties:
+                                            args:
+                                              description: Arguments passed to the
+                                                tool (JSON object)
+                                              x-kubernetes-preserve-unknown-fields: true
+                                            name:
+                                              description: Name of the tool
+                                              type: string
+                                          required:
+                                          - name
+                                          type: object
+                                        type: array
+                                      topics:
+                                        description: Expected topics to be covered
+                                        items:
+                                          type: string
+                                        type: array
+                                    type: object
+                                required:
+                                - input
+                                type: object
+                              minItems: 1
+                              type: array
+                          required:
+                          - name
+                          - steps
+                          type: object
+                        minItems: 1
+                        type: array
+                    required:
+                    - scenarios
+                    type: object
                   s3:
                     description: S3 source configuration
                     properties:
@@ -128,100 +226,13 @@ spec:
                     description: URL source (HTTP/HTTPS)
                     type: string
                 type: object
-              defaultThreshold:
-                default: 0.9
-                description: Default threshold for all metrics (0.0-1.0)
-                maximum: 1
-                minimum: 0
-                type: number
-              llmAsAJudgeModel:
-                description: LLM model used for evaluation (e.g., "gemini-2.5-flash-lite",
-                  "gpt-4o")
-                type: string
+                x-kubernetes-validations:
+                - message: exactly one of s3, url, or inline must be set
+                  rule: '(has(self.s3) ? 1 : 0) + ((has(self.url) && self.url != '''')
+                    ? 1 : 0) + (has(self.inline) ? 1 : 0) == 1'
               otlpEndpoint:
                 description: OTLP endpoint URL for publishing metrics (e.g., "http://lgtm.monitoring.svc.cluster.local:4318")
                 type: string
-              scenarios:
-                description: Inline test scenarios (mutually exclusive with dataset)
-                items:
-                  description: Scenario represents a test scenario containing multiple
-                    steps
-                  properties:
-                    name:
-                      description: Name of the scenario
-                      type: string
-                    steps:
-                      description: Steps in this scenario
-                      items:
-                        description: Step represents a single test step within a scenario
-                        properties:
-                          customValues:
-                            description: Custom key-value pairs (e.g., retrieved_contexts)
-                            x-kubernetes-preserve-unknown-fields: true
-                          input:
-                            description: User input to the agent
-                            type: string
-                          metrics:
-                            description: Metrics to evaluate for this step
-                            items:
-                              description: Metric defines a single metric evaluation
-                                configuration
-                              properties:
-                                metricName:
-                                  description: Name of the metric (e.g., "ragas_faithfulness",
-                                    "tool_check")
-                                  type: string
-                                parameters:
-                                  description: Additional parameters for the metric
-                                  x-kubernetes-preserve-unknown-fields: true
-                                threshold:
-                                  description: Threshold for pass/fail (0.0-1.0)
-                                  maximum: 1
-                                  minimum: 0
-                                  type: number
-                              required:
-                              - metricName
-                              type: object
-                            type: array
-                          reference:
-                            description: Expected reference data for evaluation
-                            properties:
-                              response:
-                                description: Expected response text
-                                type: string
-                              toolCalls:
-                                description: Expected tool calls
-                                items:
-                                  description: ToolCall represents an expected tool
-                                    invocation
-                                  properties:
-                                    args:
-                                      description: Arguments passed to the tool (JSON
-                                        object)
-                                      x-kubernetes-preserve-unknown-fields: true
-                                    name:
-                                      description: Name of the tool
-                                      type: string
-                                  required:
-                                  - name
-                                  type: object
-                                type: array
-                              topics:
-                                description: Expected topics to be covered
-                                items:
-                                  type: string
-                                type: array
-                            type: object
-                        required:
-                        - input
-                        type: object
-                      minItems: 1
-                      type: array
-                  required:
-                  - name
-                  - steps
-                  type: object
-                type: array
               trigger:
                 description: Trigger configuration
                 properties:
@@ -242,10 +253,8 @@ spec:
                 type: object
             required:
             - agentRef
+            - dataset
             type: object
-            x-kubernetes-validations:
-            - message: dataset and scenarios are mutually exclusive
-              rule: '!(has(self.dataset) && has(self.scenarios))'
           status:
             description: ExperimentStatus defines the observed state of Experiment
             properties:
