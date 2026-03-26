@@ -462,10 +462,12 @@ func (r *ExperimentReconciler) buildTestTrigger(experiment *testbenchv1alpha1.Ex
 				"namespace": testkubeNamespace,
 			},
 			"spec": map[string]interface{}{
-				"resource": "deployment",
-				"resourceSelector": map[string]interface{}{
-					"name":      experiment.Spec.AgentRef.Name,
-					"namespace": agentNs,
+				"selector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"testkube.io/resource-kind":      "Deployment",
+						"testkube.io/resource-name":      experiment.Spec.AgentRef.Name,
+						"testkube.io/resource-namespace": agentNs,
+					},
 				},
 				"event":             r.resolveTriggerEvent(experiment),
 				"action":            "run",

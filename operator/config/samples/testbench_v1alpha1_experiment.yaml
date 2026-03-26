@@ -9,9 +9,6 @@ spec:
   agentRef:
     name: weather-agent
     namespace: sample-agents
-  aiGatewayRef:
-    name: ai-gateway
-    namespace: ai-gateway
   otlpEndpoint: http://lgtm.monitoring.svc.cluster.local:4318
   llmAsAJudgeModel: gemini-2.5-flash-lite
   defaultThreshold: 0.9
