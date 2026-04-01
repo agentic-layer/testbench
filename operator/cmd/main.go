@@ -159,7 +159,7 @@ func main() {
 
 	gc := &controller.GarbageCollector{
 		Client:   mgr.GetClient(),
-		Interval: 60 * time.Second,
+		Interval: 24 * time.Hour,
 		Logger:   ctrl.Log.WithName("garbage-collector"),
 	}
 	if err := mgr.Add(gc); err != nil {

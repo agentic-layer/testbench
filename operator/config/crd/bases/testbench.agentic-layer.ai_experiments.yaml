@@ -228,8 +228,8 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: exactly one of s3, url, or inline must be set
-                  rule: '(has(self.s3) ? 1 : 0) + ((has(self.url) && self.url != '''')
-                    ? 1 : 0) + (has(self.inline) ? 1 : 0) == 1'
+                  rule: '(has(self.s3) ? 1 : 0) + (has(self.url) ? 1 : 0) + (has(self.inline)
+                    ? 1 : 0) == 1'
               otlpEndpoint:
                 description: OTLP endpoint URL for publishing metrics (e.g., "http://lgtm.monitoring.svc.cluster.local:4318")
                 type: string

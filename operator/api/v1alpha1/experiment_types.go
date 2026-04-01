@@ -67,7 +67,7 @@ type InlineDataset struct {
 
 // DatasetSource defines where to load the test dataset from.
 // Exactly one of s3, url, or inline must be set.
-// +kubebuilder:validation:XValidation:rule="(has(self.s3) ? 1 : 0) + ((has(self.url) && self.url != '') ? 1 : 0) + (has(self.inline) ? 1 : 0) == 1",message="exactly one of s3, url, or inline must be set"
+// +kubebuilder:validation:XValidation:rule="(has(self.s3) ? 1 : 0) + (has(self.url) ? 1 : 0) + (has(self.inline) ? 1 : 0) == 1",message="exactly one of s3, url, or inline must be set"
 type DatasetSource struct {
 	// S3 source configuration
 	// +optional

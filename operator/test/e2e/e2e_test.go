@@ -27,7 +27,7 @@ import (
 	"github.com/agentic-layer/testbench/operator/test/utils"
 )
 
-const namespace = "operator-system"
+const namespace = "testbench-operator-system"
 
 var _ = Describe("controller", Ordered, func() {
 	BeforeAll(func() {
