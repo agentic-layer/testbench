@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"k8s.io/client-go/tools/record"
 
 	runtimev1alpha1 "github.com/agentic-layer/agent-runtime-operator/api/v1alpha1"
 	testbenchv1alpha1 "github.com/agentic-layer/testbench/operator/api/v1alpha1"
@@ -105,7 +106,8 @@ type metricJSON struct {
 // ExperimentReconciler reconciles an Experiment object.
 type ExperimentReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=testbench.agentic-layer.ai,resources=experiments,verbs=get;list;watch;create;update;patch;delete
@@ -142,6 +144,9 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		if err := r.Delete(ctx, anchor); err != nil && !errors.IsNotFound(err) {
 			logger.Error(err, "failed to delete anchor ConfigMap", "name", anchorName)
+		} else if r.Recorder != nil {
+			r.Recorder.Event(experiment, corev1.EventTypeNormal, EventAnchorDeleted,
+				fmt.Sprintf("Deleted anchor ConfigMap %s", anchorName))
 		}
 		return ctrl.Result{}, nil
 	}
@@ -161,6 +166,10 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	var generatedResources []testbenchv1alpha1.GeneratedResource
 	result, reconcileErr := r.reconcileResources(ctx, experiment, anchorUID, &generatedResources)
+
+	if reconcileErr != nil && r.Recorder != nil {
+		r.Recorder.Event(experiment, corev1.EventTypeWarning, EventReconcileError, reconcileErr.Error())
+	}
 
 	if statusErr := r.updateStatus(ctx, experiment, generatedResources, result, reconcileErr); statusErr != nil {
 		logger.Error(statusErr, "failed to update status")
@@ -249,6 +258,11 @@ func (r *ExperimentReconciler) reconcileAnchor(
 	})
 	if err != nil {
 		return "", err
+	}
+
+	if r.Recorder != nil {
+		r.Recorder.Event(experiment, corev1.EventTypeNormal, EventAnchorCreated,
+			fmt.Sprintf("Created anchor ConfigMap %s in %s", anchorName, testkubeNamespace))
 	}
 
 	return anchor.UID, nil
