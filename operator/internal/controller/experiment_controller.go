@@ -113,6 +113,7 @@ type ExperimentReconciler struct {
 // +kubebuilder:rbac:groups=testbench.agentic-layer.ai,resources=experiments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=testbench.agentic-layer.ai,resources=experiments/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=testworkflows.testkube.io,resources=testworkflows,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=tests.testkube.io,resources=testtriggers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=runtime.agentic-layer.ai,resources=aigateways,verbs=get;list;watch
@@ -164,14 +165,13 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, fmt.Errorf("reconciling anchor: %w", err)
 	}
 
-	var generatedResources []testbenchv1alpha1.GeneratedResource
-	result, reconcileErr := r.reconcileResources(ctx, experiment, anchorUID, &generatedResources)
+	result, reconcileErr := r.reconcileResources(ctx, experiment, anchorUID)
 
 	if reconcileErr != nil && r.Recorder != nil {
 		r.Recorder.Event(experiment, corev1.EventTypeWarning, EventReconcileError, reconcileErr.Error())
 	}
 
-	if statusErr := r.updateStatus(ctx, experiment, generatedResources, result, reconcileErr); statusErr != nil {
+	if statusErr := r.updateStatus(ctx, experiment, result, reconcileErr); statusErr != nil {
 		logger.Error(statusErr, "failed to update status")
 		return ctrl.Result{}, statusErr
 	}
@@ -189,23 +189,22 @@ func (r *ExperimentReconciler) reconcileResources(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
 	anchorUID types.UID,
-	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) (reconcileResult, error) {
 	var result reconcileResult
-	if err := r.reconcileConfigMap(ctx, experiment, anchorUID, generatedResources); err != nil {
+	if err := r.reconcileConfigMap(ctx, experiment, anchorUID); err != nil {
 		return result, fmt.Errorf("reconciling ConfigMap: %w", err)
 	}
 	aiGateway, err := r.resolveAiGateway(ctx, experiment)
 	if err != nil {
 		return result, fmt.Errorf("resolving AiGateway: %w", err)
 	}
-	wfSkipped, err := r.reconcileTestWorkflow(ctx, experiment, aiGateway, anchorUID, generatedResources)
+	wfSkipped, err := r.reconcileTestWorkflow(ctx, experiment, aiGateway, anchorUID)
 	if err != nil {
 		result.workflowErr = err
 		return result, fmt.Errorf("reconciling TestWorkflow: %w", err)
 	}
 	result.workflowSkipped = wfSkipped
-	if err := r.reconcileTestTrigger(ctx, experiment, anchorUID, generatedResources); err != nil {
+	if err := r.reconcileTestTrigger(ctx, experiment, anchorUID); err != nil {
 		return result, fmt.Errorf("reconciling TestTrigger: %w", err)
 	}
 	return result, nil
@@ -274,7 +273,6 @@ func (r *ExperimentReconciler) reconcileConfigMap(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
 	anchorUID types.UID,
-	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) error {
 	cmName := resourceName(experiment.Name, experiment.Namespace, "experiment")
 
@@ -317,11 +315,6 @@ func (r *ExperimentReconciler) reconcileConfigMap(
 		return err
 	}
 
-	*generatedResources = append(*generatedResources, testbenchv1alpha1.GeneratedResource{
-		Kind:      "ConfigMap",
-		Name:      cm.Name,
-		Namespace: cm.Namespace,
-	})
 	return nil
 }
 
@@ -389,7 +382,6 @@ func (r *ExperimentReconciler) reconcileTestWorkflow(
 	experiment *testbenchv1alpha1.Experiment,
 	aiGateway *runtimev1alpha1.AiGateway,
 	anchorUID types.UID,
-	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) (bool, error) {
 	workflow := r.buildTestWorkflow(experiment, aiGateway)
 	ownerRef := anchorOwnerReference(experiment.Name, experiment.Namespace, anchorUID)
@@ -416,11 +408,6 @@ func (r *ExperimentReconciler) reconcileTestWorkflow(
 		}
 	}
 
-	*generatedResources = append(*generatedResources, testbenchv1alpha1.GeneratedResource{
-		Kind:      "TestWorkflow",
-		Name:      workflow.GetName(),
-		Namespace: workflow.GetNamespace(),
-	})
 	return false, nil
 }
 
@@ -509,7 +496,6 @@ func (r *ExperimentReconciler) reconcileTestTrigger(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
 	anchorUID types.UID,
-	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) error {
 	triggerName := resourceName(experiment.Name, experiment.Namespace, "trigger")
 
@@ -553,11 +539,6 @@ func (r *ExperimentReconciler) reconcileTestTrigger(
 		}
 	}
 
-	*generatedResources = append(*generatedResources, testbenchv1alpha1.GeneratedResource{
-		Kind:      "TestTrigger",
-		Name:      triggerName,
-		Namespace: testkubeNamespace,
-	})
 	return nil
 }
 
@@ -604,16 +585,13 @@ func (r *ExperimentReconciler) buildTestTrigger(experiment *testbenchv1alpha1.Ex
 	}
 }
 
-// updateStatus updates Ready and WorkflowReady conditions and the generatedResources list.
+// updateStatus updates Ready and WorkflowReady conditions.
 func (r *ExperimentReconciler) updateStatus(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
-	generatedResources []testbenchv1alpha1.GeneratedResource,
 	result reconcileResult,
 	reconcileErr error,
 ) error {
-	experiment.Status.GeneratedResources = generatedResources
-
 	readyStatus := metav1.ConditionTrue
 	readyReason := "ReconcileSucceeded"
 	readyMsg := "All resources reconciled successfully"

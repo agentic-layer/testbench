@@ -244,19 +244,6 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(readyCond.ObservedGeneration).To(Equal(exp.Generation))
 		})
 
-		It("should populate generatedResources in status", func() {
-			Expect(reconcileExperiment(expName)).To(Succeed())
-
-			exp := &testbenchv1alpha1.Experiment{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
-
-			kinds := make([]string, 0, len(exp.Status.GeneratedResources))
-			for _, gr := range exp.Status.GeneratedResources {
-				kinds = append(kinds, gr.Kind)
-			}
-			Expect(kinds).To(ContainElements("ConfigMap", "TestWorkflow"))
-		})
-
 		It("should be idempotent on re-reconciliation", func() {
 			Expect(reconcileExperiment(expName)).To(Succeed())
 			Expect(reconcileExperiment(expName)).To(Succeed())
@@ -482,19 +469,6 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 
-		It("should include TestTrigger in generatedResources when enabled", func() {
-			createExperiment(true, "Allow")
-			Expect(reconcileExperiment(expName)).To(Succeed())
-
-			exp := &testbenchv1alpha1.Experiment{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
-
-			kinds := make([]string, 0, len(exp.Status.GeneratedResources))
-			for _, gr := range exp.Status.GeneratedResources {
-				kinds = append(kinds, gr.Kind)
-			}
-			Expect(kinds).To(ContainElements("ConfigMap", "TestWorkflow", "TestTrigger"))
-		})
 	})
 
 	Context("Status management", func() {

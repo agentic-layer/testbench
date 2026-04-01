@@ -17,6 +17,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - runtime.agentic-layer.ai
   resources:
   - aigateways
@@ -36,12 +43,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - testbench.agentic-layer.ai
-  resources:
-  - experiments/finalizers
-  verbs:
-  - update
 - apiGroups:
   - testbench.agentic-layer.ai
   resources:
