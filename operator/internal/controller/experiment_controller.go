@@ -245,7 +245,7 @@ func (r *ExperimentReconciler) reconcileAnchor(
 		},
 	}
 
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, anchor, func() error {
+	opResult, err := controllerutil.CreateOrUpdate(ctx, r.Client, anchor, func() error {
 		anchor.Labels = buildLabels(experiment.Name, experiment.Namespace, resourceTypeAnchor)
 		// If experiment is in testkube, set ownerRef for native GC
 		if experiment.Namespace == testkubeNamespace {
@@ -259,7 +259,7 @@ func (r *ExperimentReconciler) reconcileAnchor(
 		return "", err
 	}
 
-	if r.Recorder != nil {
+	if opResult == controllerutil.OperationResultCreated && r.Recorder != nil {
 		r.Recorder.Event(experiment, corev1.EventTypeNormal, EventAnchorCreated,
 			fmt.Sprintf("Created anchor ConfigMap %s in %s", anchorName, testkubeNamespace))
 	}
@@ -403,6 +403,7 @@ func (r *ExperimentReconciler) reconcileTestWorkflow(
 	} else {
 		existing.Object["spec"] = workflow.Object["spec"]
 		existing.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
+		existing.SetLabels(workflow.GetLabels())
 		if updateErr := r.Update(ctx, existing); updateErr != nil {
 			return false, updateErr
 		}
@@ -534,6 +535,7 @@ func (r *ExperimentReconciler) reconcileTestTrigger(
 	} else {
 		existing.Object["spec"] = trigger.Object["spec"]
 		existing.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
+		existing.SetLabels(trigger.GetLabels())
 		if updateErr := r.Update(ctx, existing); updateErr != nil {
 			return updateErr
 		}

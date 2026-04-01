@@ -19,6 +19,5 @@ package controller
 const (
 	EventAnchorCreated  = "AnchorCreated"
 	EventAnchorDeleted  = "AnchorDeleted"
-	EventGCCleanup      = "GCCleanup"
 	EventReconcileError = "ReconcileError"
 )
