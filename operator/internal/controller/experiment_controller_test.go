@@ -774,6 +774,100 @@ var _ = Describe("Experiment Controller", func() {
 		})
 	})
 
+	Context("Deletion handling", func() {
+		const expName = "exp-delete"
+
+		AfterEach(func() {
+			cleanupExperiment(expName)
+		})
+
+		It("should delete the anchor when the Experiment is deleted", func() {
+			By("creating and reconciling an Experiment")
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent", Namespace: "agents"},
+					Dataset: testbenchv1alpha1.DatasetSource{
+						Inline: &testbenchv1alpha1.InlineDataset{
+							Scenarios: []testbenchv1alpha1.Scenario{
+								{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			By("verifying anchor exists")
+			anchorName := resourceName(expName, namespace, "anchor")
+			anchor := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: anchorName, Namespace: testkubeNamespace,
+			}, anchor)).To(Succeed())
+
+			By("deleting the Experiment and reconciling")
+			Expect(k8sClient.Delete(ctx, exp)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			By("verifying anchor is deleted")
+			err := k8sClient.Get(ctx, types.NamespacedName{
+				Name: anchorName, Namespace: testkubeNamespace,
+			}, anchor)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("should not have a finalizer on the Experiment", func() {
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent"},
+					Dataset: testbenchv1alpha1.DatasetSource{
+						Inline: &testbenchv1alpha1.InlineDataset{
+							Scenarios: []testbenchv1alpha1.Scenario{
+								{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
+			Expect(exp.Finalizers).To(BeEmpty())
+		})
+
+		It("should strip legacy finalizer from existing Experiments", func() {
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "exp-legacy-finalizer",
+					Namespace:  namespace,
+					Finalizers: []string{"testbench.agentic-layer.ai/cleanup"},
+				},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent"},
+					Dataset: testbenchv1alpha1.DatasetSource{
+						Inline: &testbenchv1alpha1.InlineDataset{
+							Scenarios: []testbenchv1alpha1.Scenario{
+								{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			defer cleanupExperiment("exp-legacy-finalizer")
+
+			Expect(reconcileExperiment("exp-legacy-finalizer")).To(Succeed())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: "exp-legacy-finalizer", Namespace: namespace,
+			}, exp)).To(Succeed())
+			Expect(exp.Finalizers).To(BeEmpty())
+		})
+	})
+
 	Context("OTel env var injection", func() {
 		const expName = "exp-otel"
 
