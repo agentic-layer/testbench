@@ -46,6 +46,7 @@ const (
 	defaultAgentPort          = "8000"
 	testkubeNamespace         = "testkube"
 	defaultAiGatewayNamespace = "ai-gateway"
+	finalizerName             = "testbench.agentic-layer.ai/cleanup"
 )
 
 var (
@@ -120,6 +121,33 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Handle deletion: clean up cross-namespace resources before removing the finalizer.
+	if !experiment.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(experiment, finalizerName) {
+			r.cleanupCrossNamespaceResources(ctx, experiment)
+			controllerutil.RemoveFinalizer(experiment, finalizerName)
+			if err := r.Update(ctx, experiment); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer for cross-namespace Experiments so we can clean up resources in testkube namespace.
+	if experiment.Namespace != testkubeNamespace {
+		if controllerutil.AddFinalizer(experiment, finalizerName) {
+			if err := r.Update(ctx, experiment); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	anchorUID, err := r.reconcileAnchor(ctx, experiment)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("reconciling anchor: %w", err)
+	}
+	_ = anchorUID
+
 	var generatedResources []testbenchv1alpha1.GeneratedResource
 	result, reconcileErr := r.reconcileResources(ctx, experiment, &generatedResources)
 
@@ -160,6 +188,37 @@ func (r *ExperimentReconciler) reconcileResources(
 		return result, fmt.Errorf("reconciling TestTrigger: %w", err)
 	}
 	return result, nil
+}
+
+// reconcileAnchor creates or updates the anchor ConfigMap in testkube namespace.
+// Returns the anchor's UID for use in ownerReferences on child resources.
+func (r *ExperimentReconciler) reconcileAnchor(
+	ctx context.Context,
+	experiment *testbenchv1alpha1.Experiment,
+) (types.UID, error) {
+	anchorName := resourceName(experiment.Name, experiment.Namespace, "anchor")
+	anchor := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      anchorName,
+			Namespace: testkubeNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, anchor, func() error {
+		anchor.Labels = buildLabels(experiment.Name, experiment.Namespace, resourceTypeAnchor)
+		// If experiment is in testkube, set ownerRef for native GC
+		if experiment.Namespace == testkubeNamespace {
+			if err := controllerutil.SetControllerReference(experiment, anchor, r.Scheme); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return anchor.UID, nil
 }
 
 // reconcileConfigMap creates or updates the ConfigMap holding experiment.json for inline mode,
@@ -638,6 +697,34 @@ func (r *ExperimentReconciler) resolveDefaultAiGateway(ctx context.Context) (*ru
 
 func buildAiGatewayServiceUrl(aiGateway runtimev1alpha1.AiGateway) string {
 	return fmt.Sprintf("http://%s.%s.svc.cluster.local.:%d", aiGateway.Name, aiGateway.Namespace, aiGateway.Spec.Port)
+}
+
+// cleanupCrossNamespaceResources deletes resources tracked in status.generatedResources
+// that live in a different namespace than the Experiment (and thus have no owner reference).
+func (r *ExperimentReconciler) cleanupCrossNamespaceResources(ctx context.Context, experiment *testbenchv1alpha1.Experiment) {
+	logger := log.FromContext(ctx)
+	for _, res := range experiment.Status.GeneratedResources {
+		if res.Namespace == experiment.Namespace {
+			continue // same-namespace resources are garbage-collected via owner references
+		}
+		obj := &unstructured.Unstructured{}
+		obj.SetName(res.Name)
+		obj.SetNamespace(res.Namespace)
+		switch res.Kind {
+		case "TestWorkflow":
+			obj.SetGroupVersionKind(testWorkflowGVK)
+		case "TestTrigger":
+			obj.SetGroupVersionKind(testTriggerGVK)
+		case "ConfigMap":
+			obj.SetGroupVersionKind(schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"})
+		default:
+			logger.Info("Unknown generated resource kind, skipping cleanup", "kind", res.Kind, "name", res.Name)
+			continue
+		}
+		if err := r.Delete(ctx, obj); err != nil && !errors.IsNotFound(err) {
+			logger.Error(err, "Failed to delete cross-namespace resource", "kind", res.Kind, "name", res.Name, "namespace", res.Namespace)
+		}
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

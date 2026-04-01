@@ -72,6 +72,12 @@ var _ = Describe("Experiment Controller", func() {
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-trigger", Namespace: namespace}, trig); err == nil {
 			_ = k8sClient.Delete(ctx, trig)
 		}
+		// Clean up anchor in testkube namespace
+		anchorCm := &corev1.ConfigMap{}
+		anchorName := resourceName(name, namespace, "anchor")
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: anchorName, Namespace: testkubeNamespace}, anchorCm); err == nil {
+			_ = k8sClient.Delete(ctx, anchorCm)
+		}
 	}
 
 	Context("Scenarios mode reconciliation", func() {
@@ -263,6 +269,22 @@ var _ = Describe("Experiment Controller", func() {
 			}
 			Expect(count).To(Equal(1))
 		})
+
+		It("should create an anchor ConfigMap in testkube namespace", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			anchor := &corev1.ConfigMap{}
+			anchorName := resourceName(expName, namespace, "anchor")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      anchorName,
+				Namespace: testkubeNamespace,
+			}, anchor)).To(Succeed())
+
+			Expect(anchor.Labels).To(HaveKeyWithValue(labelExperimentName, expName))
+			Expect(anchor.Labels).To(HaveKeyWithValue(labelExperimentNamespace, namespace))
+			Expect(anchor.Labels).To(HaveKeyWithValue(labelManagedBy, "experiment-controller"))
+			Expect(anchor.Labels).To(HaveKeyWithValue(labelResourceType, resourceTypeAnchor))
+		})
 	})
 
 	Context("Dataset mode reconciliation", func() {
@@ -348,8 +370,8 @@ var _ = Describe("Experiment Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
 					AgentRef: testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
-					Dataset: testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
-					Trigger: trigger,
+					Dataset:  testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
+					Trigger:  trigger,
 				},
 			}
 			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
