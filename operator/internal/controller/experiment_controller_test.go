@@ -920,4 +920,44 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(hasContainer).To(BeFalse(), "spec.container should be absent when otlpEndpoint is not set")
 		})
 	})
+
+	Context("Self-healing", func() {
+		It("should recreate anchor when it is accidentally deleted", func() {
+			const expName = "exp-self-heal"
+
+			By("creating and reconciling an Experiment")
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent", Namespace: "agents"},
+					Dataset: testbenchv1alpha1.DatasetSource{
+						Inline: &testbenchv1alpha1.InlineDataset{
+							Scenarios: []testbenchv1alpha1.Scenario{
+								{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			defer cleanupExperiment(expName)
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			By("deleting the anchor manually")
+			anchorName := resourceName(expName, namespace, "anchor")
+			anchor := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: anchorName, Namespace: testkubeNamespace,
+			}, anchor)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, anchor)).To(Succeed())
+
+			By("reconciling again (simulates the secondary watch triggering)")
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			By("verifying the anchor is recreated")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: anchorName, Namespace: testkubeNamespace,
+			}, anchor)).To(Succeed())
+		})
+	})
 })

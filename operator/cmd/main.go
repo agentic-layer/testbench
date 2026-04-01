@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -154,6 +155,16 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	gc := &controller.GarbageCollector{
+		Client:   mgr.GetClient(),
+		Interval: 60 * time.Second,
+		Logger:   ctrl.Log.WithName("garbage-collector"),
+	}
+	if err := mgr.Add(gc); err != nil {
+		setupLog.Error(err, "unable to add garbage collector")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

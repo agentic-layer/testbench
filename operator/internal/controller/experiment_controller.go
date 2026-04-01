@@ -31,9 +31,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	runtimev1alpha1 "github.com/agentic-layer/agent-runtime-operator/api/v1alpha1"
 	testbenchv1alpha1 "github.com/agentic-layer/testbench/operator/api/v1alpha1"
@@ -730,8 +734,29 @@ func buildAiGatewayServiceUrl(aiGateway runtimev1alpha1.AiGateway) string {
 func (r *ExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&testbenchv1alpha1.Experiment{}).
-		Owns(&corev1.ConfigMap{}).
+		Watches(
+			&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(r.anchorToExperiment),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				labels := obj.GetLabels()
+				return labels[labelManagedBy] == "experiment-controller" &&
+					labels[labelResourceType] == resourceTypeAnchor
+			})),
+		).
 		Complete(r)
+}
+
+// anchorToExperiment maps an anchor ConfigMap back to the source Experiment for reconciliation.
+func (r *ExperimentReconciler) anchorToExperiment(_ context.Context, obj client.Object) []reconcile.Request {
+	labels := obj.GetLabels()
+	expName := labels[labelExperimentName]
+	expNs := labels[labelExperimentNamespace]
+	if expName == "" || expNs == "" {
+		return nil
+	}
+	return []reconcile.Request{{
+		NamespacedName: types.NamespacedName{Name: expName, Namespace: expNs},
+	}}
 }
 
 // isCRDNotInstalled returns true when the error indicates the target CRD is not registered.
