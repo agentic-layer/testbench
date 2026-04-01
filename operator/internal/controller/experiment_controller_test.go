@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -58,25 +59,27 @@ var _ = Describe("Experiment Controller", func() {
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, exp); err == nil {
 			_ = k8sClient.Delete(ctx, exp)
 		}
-		cm := &corev1.ConfigMap{}
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-experiment", Namespace: namespace}, cm); err == nil {
-			_ = k8sClient.Delete(ctx, cm)
+		// All generated resources are in testkubeNamespace with namespace-qualified names
+		for _, suffix := range []string{"anchor", "experiment"} {
+			rName := resourceName(name, namespace, suffix)
+			cm := &corev1.ConfigMap{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: rName, Namespace: testkubeNamespace}, cm); err == nil {
+				_ = k8sClient.Delete(ctx, cm)
+			}
 		}
-		wf := &unstructured.Unstructured{}
-		wf.SetGroupVersionKind(testWorkflowGVK)
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-workflow", Namespace: namespace}, wf); err == nil {
-			_ = k8sClient.Delete(ctx, wf)
-		}
-		trig := &unstructured.Unstructured{}
-		trig.SetGroupVersionKind(testTriggerGVK)
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name + "-trigger", Namespace: namespace}, trig); err == nil {
-			_ = k8sClient.Delete(ctx, trig)
-		}
-		// Clean up anchor in testkube namespace
-		anchorCm := &corev1.ConfigMap{}
-		anchorName := resourceName(name, namespace, "anchor")
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: anchorName, Namespace: testkubeNamespace}, anchorCm); err == nil {
-			_ = k8sClient.Delete(ctx, anchorCm)
+		for _, info := range []struct {
+			suffix string
+			gvk    schema.GroupVersionKind
+		}{
+			{"workflow", testWorkflowGVK},
+			{"trigger", testTriggerGVK},
+		} {
+			rName := resourceName(name, namespace, info.suffix)
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(info.gvk)
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: rName, Namespace: testkubeNamespace}, obj); err == nil {
+				_ = k8sClient.Delete(ctx, obj)
+			}
 		}
 	}
 
@@ -131,7 +134,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			By("checking the ConfigMap exists")
 			cm := &corev1.ConfigMap{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-experiment", Namespace: namespace}, cm)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "experiment"), Namespace: testkubeNamespace}, cm)).To(Succeed())
 			Expect(cm.Data).To(HaveKey("experiment.json"))
 
 			By("verifying the experiment.json content")
@@ -150,14 +153,14 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(expJSON.Scenarios[0].Steps[0].Metrics[0].MetricName).To(Equal("AgentGoalAccuracy"))
 		})
 
-		It("should set ConfigMap owner reference to the Experiment", func() {
+		It("should set ConfigMap owner reference to the anchor", func() {
 			Expect(reconcileExperiment(expName)).To(Succeed())
 
 			cm := &corev1.ConfigMap{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-experiment", Namespace: namespace}, cm)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "experiment"), Namespace: testkubeNamespace}, cm)).To(Succeed())
 			Expect(cm.OwnerReferences).To(HaveLen(1))
-			Expect(cm.OwnerReferences[0].Kind).To(Equal("Experiment"))
-			Expect(cm.OwnerReferences[0].Name).To(Equal(expName))
+			Expect(cm.OwnerReferences[0].Kind).To(Equal("ConfigMap"))
+			Expect(cm.OwnerReferences[0].Name).To(Equal(resourceName(expName, namespace, "anchor")))
 			Expect(cm.OwnerReferences[0].Controller).NotTo(BeNil())
 			Expect(*cm.OwnerReferences[0].Controller).To(BeTrue())
 		})
@@ -167,7 +170,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "workflow"), Namespace: testkubeNamespace}, wf)).To(Succeed())
 
 			spec := wf.Object["spec"].(map[string]interface{})
 
@@ -180,7 +183,7 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(file["path"]).To(Equal("/data/datasets/experiment.json"))
 			contentFrom := file["contentFrom"].(map[string]interface{})
 			cmRef := contentFrom["configMapKeyRef"].(map[string]interface{})
-			Expect(cmRef["name"]).To(Equal(expName + "-experiment"))
+			Expect(cmRef["name"]).To(Equal(resourceName(expName, namespace, "experiment")))
 			Expect(cmRef["key"]).To(Equal("experiment.json"))
 
 			By("checking use templates do NOT include setup-template")
@@ -202,15 +205,15 @@ var _ = Describe("Experiment Controller", func() {
 			}
 		})
 
-		It("should set TestWorkflow owner reference", func() {
+		It("should set TestWorkflow owner reference to the anchor", func() {
 			Expect(reconcileExperiment(expName)).To(Succeed())
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "workflow"), Namespace: testkubeNamespace}, wf)).To(Succeed())
 			Expect(wf.GetOwnerReferences()).To(HaveLen(1))
-			Expect(wf.GetOwnerReferences()[0].Kind).To(Equal("Experiment"))
-			Expect(wf.GetOwnerReferences()[0].Name).To(Equal(expName))
+			Expect(wf.GetOwnerReferences()[0].Kind).To(Equal("ConfigMap"))
+			Expect(wf.GetOwnerReferences()[0].Name).To(Equal(resourceName(expName, namespace, "anchor")))
 		})
 
 		It("should not create a TestTrigger when trigger is nil", func() {
@@ -218,7 +221,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			trig := &unstructured.Unstructured{}
 			trig.SetGroupVersionKind(testTriggerGVK)
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-trigger", Namespace: namespace}, trig)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "trigger"), Namespace: testkubeNamespace}, trig)
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 
@@ -260,10 +263,10 @@ var _ = Describe("Experiment Controller", func() {
 
 			cmList := &corev1.ConfigMapList{}
 			Expect(k8sClient.List(ctx, cmList,
-				client.InNamespace(namespace), client.MatchingLabels{})).To(Succeed())
+				client.InNamespace(testkubeNamespace), client.MatchingLabels{})).To(Succeed())
 			count := 0
 			for _, cm := range cmList.Items {
-				if cm.Name == expName+"-experiment" {
+				if cm.Name == resourceName(expName, namespace, "experiment") {
 					count++
 				}
 			}
@@ -284,6 +287,23 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(anchor.Labels).To(HaveKeyWithValue(labelExperimentNamespace, namespace))
 			Expect(anchor.Labels).To(HaveKeyWithValue(labelManagedBy, "experiment-controller"))
 			Expect(anchor.Labels).To(HaveKeyWithValue(labelResourceType, resourceTypeAnchor))
+		})
+
+		It("should not create duplicate anchors on re-reconciliation", func() {
+			Expect(reconcileExperiment(expName)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			anchorList := &corev1.ConfigMapList{}
+			Expect(k8sClient.List(ctx, anchorList,
+				client.InNamespace(testkubeNamespace),
+				client.MatchingLabels{labelExperimentName: expName})).To(Succeed())
+			anchorCount := 0
+			for _, cm := range anchorList.Items {
+				if cm.Labels[labelResourceType] == resourceTypeAnchor {
+					anchorCount++
+				}
+			}
+			Expect(anchorCount).To(Equal(1))
 		})
 	})
 
@@ -312,7 +332,7 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(reconcileExperiment(expName)).To(Succeed())
 
 			cm := &corev1.ConfigMap{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-experiment", Namespace: namespace}, cm)
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "experiment"), Namespace: testkubeNamespace}, cm)
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 
@@ -321,7 +341,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "workflow"), Namespace: testkubeNamespace}, wf)).To(Succeed())
 
 			spec := wf.Object["spec"].(map[string]interface{})
 
@@ -348,7 +368,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "workflow"), Namespace: testkubeNamespace}, wf)).To(Succeed())
 			spec := wf.Object["spec"].(map[string]interface{})
 			use := spec["use"].([]interface{})
 			first := use[0].(map[string]interface{})
@@ -388,8 +408,8 @@ var _ = Describe("Experiment Controller", func() {
 			trig := &unstructured.Unstructured{}
 			trig.SetGroupVersionKind(testTriggerGVK)
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name:      expName + "-trigger",
-				Namespace: namespace,
+				Name:      resourceName(expName, namespace, "trigger"),
+				Namespace: testkubeNamespace,
 			}, trig)).To(Succeed())
 
 			spec := trig.Object["spec"].(map[string]interface{})
@@ -404,22 +424,22 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(resSelector["namespace"]).To(Equal("agents"))
 
 			testSelector := spec["testSelector"].(map[string]interface{})
-			Expect(testSelector["name"]).To(Equal(expName + "-workflow"))
-			Expect(testSelector["namespace"]).To(Equal(namespace))
+			Expect(testSelector["name"]).To(Equal(resourceName(expName, namespace, "workflow")))
+			Expect(testSelector["namespace"]).To(Equal(testkubeNamespace))
 		})
 
-		It("should set TestTrigger owner reference", func() {
+		It("should set TestTrigger owner reference to the anchor", func() {
 			createExperiment(true, "Allow")
 			Expect(reconcileExperiment(expName)).To(Succeed())
 
 			trig := &unstructured.Unstructured{}
 			trig.SetGroupVersionKind(testTriggerGVK)
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name:      expName + "-trigger",
-				Namespace: namespace,
+				Name:      resourceName(expName, namespace, "trigger"),
+				Namespace: testkubeNamespace,
 			}, trig)).To(Succeed())
 			Expect(trig.GetOwnerReferences()).To(HaveLen(1))
-			Expect(trig.GetOwnerReferences()[0].Kind).To(Equal("Experiment"))
+			Expect(trig.GetOwnerReferences()[0].Kind).To(Equal("ConfigMap"))
 		})
 
 		It("should not create a TestTrigger when trigger.enabled=false", func() {
@@ -429,8 +449,8 @@ var _ = Describe("Experiment Controller", func() {
 			trig := &unstructured.Unstructured{}
 			trig.SetGroupVersionKind(testTriggerGVK)
 			err := k8sClient.Get(ctx, types.NamespacedName{
-				Name:      expName + "-trigger",
-				Namespace: namespace,
+				Name:      resourceName(expName, namespace, "trigger"),
+				Namespace: testkubeNamespace,
 			}, trig)
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
@@ -443,8 +463,8 @@ var _ = Describe("Experiment Controller", func() {
 			trig := &unstructured.Unstructured{}
 			trig.SetGroupVersionKind(testTriggerGVK)
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name:      expName + "-trigger",
-				Namespace: namespace,
+				Name:      resourceName(expName, namespace, "trigger"),
+				Namespace: testkubeNamespace,
 			}, trig)).To(Succeed())
 
 			By("disabling the trigger")
@@ -456,8 +476,8 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(reconcileExperiment(expName)).To(Succeed())
 
 			err := k8sClient.Get(ctx, types.NamespacedName{
-				Name:      expName + "-trigger",
-				Namespace: namespace,
+				Name:      resourceName(expName, namespace, "trigger"),
+				Namespace: testkubeNamespace,
 			}, trig)
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
@@ -775,7 +795,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "workflow"), Namespace: testkubeNamespace}, wf)).To(Succeed())
 
 			spec := wf.Object["spec"].(map[string]interface{})
 			container := spec["container"].(map[string]interface{})
@@ -799,7 +819,7 @@ var _ = Describe("Experiment Controller", func() {
 
 			wf := &unstructured.Unstructured{}
 			wf.SetGroupVersionKind(testWorkflowGVK)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName + "-workflow", Namespace: namespace}, wf)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "workflow"), Namespace: testkubeNamespace}, wf)).To(Succeed())
 
 			spec := wf.Object["spec"].(map[string]interface{})
 			_, hasContainer := spec["container"]

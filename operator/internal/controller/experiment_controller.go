@@ -146,10 +146,9 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("reconciling anchor: %w", err)
 	}
-	_ = anchorUID
 
 	var generatedResources []testbenchv1alpha1.GeneratedResource
-	result, reconcileErr := r.reconcileResources(ctx, experiment, &generatedResources)
+	result, reconcileErr := r.reconcileResources(ctx, experiment, anchorUID, &generatedResources)
 
 	if statusErr := r.updateStatus(ctx, experiment, generatedResources, result, reconcileErr); statusErr != nil {
 		logger.Error(statusErr, "failed to update status")
@@ -168,26 +167,48 @@ type reconcileResult struct {
 func (r *ExperimentReconciler) reconcileResources(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
+	anchorUID types.UID,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) (reconcileResult, error) {
 	var result reconcileResult
-	if err := r.reconcileConfigMap(ctx, experiment, generatedResources); err != nil {
+	if err := r.reconcileConfigMap(ctx, experiment, anchorUID, generatedResources); err != nil {
 		return result, fmt.Errorf("reconciling ConfigMap: %w", err)
 	}
 	aiGateway, err := r.resolveAiGateway(ctx, experiment)
 	if err != nil {
 		return result, fmt.Errorf("resolving AiGateway: %w", err)
 	}
-	wfSkipped, err := r.reconcileTestWorkflow(ctx, experiment, aiGateway, generatedResources)
+	wfSkipped, err := r.reconcileTestWorkflow(ctx, experiment, aiGateway, anchorUID, generatedResources)
 	if err != nil {
 		result.workflowErr = err
 		return result, fmt.Errorf("reconciling TestWorkflow: %w", err)
 	}
 	result.workflowSkipped = wfSkipped
-	if err := r.reconcileTestTrigger(ctx, experiment, generatedResources); err != nil {
+	if err := r.reconcileTestTrigger(ctx, experiment, anchorUID, generatedResources); err != nil {
 		return result, fmt.Errorf("reconciling TestTrigger: %w", err)
 	}
 	return result, nil
+}
+
+// toUnstructuredLabels converts map[string]string to map[string]interface{} for use in unstructured objects.
+func toUnstructuredLabels(labels map[string]string) map[string]interface{} {
+	out := make(map[string]interface{}, len(labels))
+	for k, v := range labels {
+		out[k] = v
+	}
+	return out
+}
+
+// anchorOwnerReference builds an OwnerReference pointing to the anchor ConfigMap.
+func anchorOwnerReference(experimentName, experimentNamespace string, uid types.UID) metav1.OwnerReference {
+	isController := true
+	return metav1.OwnerReference{
+		APIVersion: "v1",
+		Kind:       "ConfigMap",
+		Name:       resourceName(experimentName, experimentNamespace, "anchor"),
+		UID:        uid,
+		Controller: &isController,
+	}
 }
 
 // reconcileAnchor creates or updates the anchor ConfigMap in testkube namespace.
@@ -226,9 +247,10 @@ func (r *ExperimentReconciler) reconcileAnchor(
 func (r *ExperimentReconciler) reconcileConfigMap(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
+	anchorUID types.UID,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) error {
-	cmName := experiment.Name + "-experiment"
+	cmName := resourceName(experiment.Name, experiment.Namespace, "experiment")
 
 	if experiment.Spec.Dataset.Inline == nil {
 		// Delete stale ConfigMap if it exists (mode switched from inline to S3/URL).
@@ -252,11 +274,10 @@ func (r *ExperimentReconciler) reconcileConfigMap(
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
-		if experiment.Namespace == testkubeNamespace {
-			if err := controllerutil.SetControllerReference(experiment, cm, r.Scheme); err != nil {
-				return err
-			}
+		cm.OwnerReferences = []metav1.OwnerReference{
+			anchorOwnerReference(experiment.Name, experiment.Namespace, anchorUID),
 		}
+		cm.Labels = buildLabels(experiment.Name, experiment.Namespace, resourceTypeDataset)
 		data, buildErr := r.buildExperimentJSON(experiment)
 		if buildErr != nil {
 			return buildErr
@@ -341,14 +362,12 @@ func (r *ExperimentReconciler) reconcileTestWorkflow(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
 	aiGateway *runtimev1alpha1.AiGateway,
+	anchorUID types.UID,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) (bool, error) {
 	workflow := r.buildTestWorkflow(experiment, aiGateway)
-	if experiment.Namespace == testkubeNamespace {
-		if err := controllerutil.SetControllerReference(experiment, workflow, r.Scheme); err != nil {
-			return false, err
-		}
-	}
+	ownerRef := anchorOwnerReference(experiment.Name, experiment.Namespace, anchorUID)
+	workflow.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(testWorkflowGVK)
@@ -365,7 +384,7 @@ func (r *ExperimentReconciler) reconcileTestWorkflow(
 		return false, err
 	} else {
 		existing.Object["spec"] = workflow.Object["spec"]
-		existing.SetOwnerReferences(workflow.GetOwnerReferences())
+		existing.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 		if updateErr := r.Update(ctx, existing); updateErr != nil {
 			return false, updateErr
 		}
@@ -435,7 +454,7 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 					"path": "/data/datasets/experiment.json",
 					"contentFrom": map[string]interface{}{
 						"configMapKeyRef": map[string]interface{}{
-							"name": experiment.Name + "-experiment",
+							"name": resourceName(experiment.Name, experiment.Namespace, "experiment"),
 							"key":  "experiment.json",
 						},
 					},
@@ -449,8 +468,9 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 			"apiVersion": testWorkflowGVK.GroupVersion().String(),
 			"kind":       testWorkflowGVK.Kind,
 			"metadata": map[string]interface{}{
-				"name":      experiment.Name + "-workflow",
+				"name":      resourceName(experiment.Name, experiment.Namespace, "workflow"),
 				"namespace": testkubeNamespace,
+				"labels":    toUnstructuredLabels(buildLabels(experiment.Name, experiment.Namespace, resourceTypeWorkflow)),
 			},
 			"spec": spec,
 		},
@@ -462,9 +482,10 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 func (r *ExperimentReconciler) reconcileTestTrigger(
 	ctx context.Context,
 	experiment *testbenchv1alpha1.Experiment,
+	anchorUID types.UID,
 	generatedResources *[]testbenchv1alpha1.GeneratedResource,
 ) error {
-	triggerName := experiment.Name + "-trigger"
+	triggerName := resourceName(experiment.Name, experiment.Namespace, "trigger")
 
 	if experiment.Spec.Trigger == nil || !experiment.Spec.Trigger.Enabled {
 		// Delete trigger if it exists.
@@ -482,11 +503,8 @@ func (r *ExperimentReconciler) reconcileTestTrigger(
 	}
 
 	trigger := r.buildTestTrigger(experiment)
-	if experiment.Namespace == testkubeNamespace {
-		if err := controllerutil.SetControllerReference(experiment, trigger, r.Scheme); err != nil {
-			return err
-		}
-	}
+	ownerRef := anchorOwnerReference(experiment.Name, experiment.Namespace, anchorUID)
+	trigger.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 
 	existing := &unstructured.Unstructured{}
 	existing.SetGroupVersionKind(testTriggerGVK)
@@ -503,7 +521,7 @@ func (r *ExperimentReconciler) reconcileTestTrigger(
 		return err
 	} else {
 		existing.Object["spec"] = trigger.Object["spec"]
-		existing.SetOwnerReferences(trigger.GetOwnerReferences())
+		existing.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 		if updateErr := r.Update(ctx, existing); updateErr != nil {
 			return updateErr
 		}
@@ -512,7 +530,7 @@ func (r *ExperimentReconciler) reconcileTestTrigger(
 	*generatedResources = append(*generatedResources, testbenchv1alpha1.GeneratedResource{
 		Kind:      "TestTrigger",
 		Name:      triggerName,
-		Namespace: experiment.Namespace,
+		Namespace: testkubeNamespace,
 	})
 	return nil
 }
@@ -534,8 +552,9 @@ func (r *ExperimentReconciler) buildTestTrigger(experiment *testbenchv1alpha1.Ex
 			"apiVersion": testTriggerGVK.GroupVersion().String(),
 			"kind":       testTriggerGVK.Kind,
 			"metadata": map[string]interface{}{
-				"name":      experiment.Name + "-trigger",
+				"name":      resourceName(experiment.Name, experiment.Namespace, "trigger"),
 				"namespace": testkubeNamespace,
+				"labels":    toUnstructuredLabels(buildLabels(experiment.Name, experiment.Namespace, resourceTypeTrigger)),
 			},
 			"spec": map[string]interface{}{
 				"selector": map[string]interface{}{
@@ -550,7 +569,7 @@ func (r *ExperimentReconciler) buildTestTrigger(experiment *testbenchv1alpha1.Ex
 				"execution":         "testworkflow",
 				"concurrencyPolicy": concurrencyPolicy,
 				"testSelector": map[string]interface{}{
-					"name":      experiment.Name + "-workflow",
+					"name":      resourceName(experiment.Name, experiment.Namespace, "workflow"),
 					"namespace": testkubeNamespace,
 				},
 				"disabled": false,
