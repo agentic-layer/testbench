@@ -51,7 +51,6 @@ const (
 	defaultAgentPort          = "8000"
 	testkubeNamespace         = "testkube"
 	defaultAiGatewayNamespace = "ai-gateway"
-	legacyFinalizerName       = "testbench.agentic-layer.ai/cleanup"
 )
 
 var (
@@ -129,13 +128,6 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// Handle deletion: delete the anchor ConfigMap (cascades to all owned resources).
 	if !experiment.DeletionTimestamp.IsZero() {
-		// Strip legacy finalizer if present (migration from pre-anchor versions).
-		if controllerutil.ContainsFinalizer(experiment, legacyFinalizerName) {
-			controllerutil.RemoveFinalizer(experiment, legacyFinalizerName)
-			if err := r.Update(ctx, experiment); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
 		anchorName := resourceName(experiment.Name, experiment.Namespace, "anchor")
 		anchor := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
@@ -150,14 +142,6 @@ func (r *ExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				fmt.Sprintf("Deleted anchor ConfigMap %s", anchorName))
 		}
 		return ctrl.Result{}, nil
-	}
-
-	// Strip legacy finalizer from non-deleted Experiments (migration).
-	if controllerutil.ContainsFinalizer(experiment, legacyFinalizerName) {
-		controllerutil.RemoveFinalizer(experiment, legacyFinalizerName)
-		if err := r.Update(ctx, experiment); err != nil {
-			return ctrl.Result{}, err
-		}
 	}
 
 	anchorUID, err := r.reconcileAnchor(ctx, experiment)

@@ -812,34 +812,6 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(exp.Finalizers).To(BeEmpty())
 		})
 
-		It("should strip legacy finalizer from existing Experiments", func() {
-			exp := &testbenchv1alpha1.Experiment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:       "exp-legacy-finalizer",
-					Namespace:  namespace,
-					Finalizers: []string{"testbench.agentic-layer.ai/cleanup"},
-				},
-				Spec: testbenchv1alpha1.ExperimentSpec{
-					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent"},
-					Dataset: testbenchv1alpha1.DatasetSource{
-						Inline: &testbenchv1alpha1.InlineDataset{
-							Scenarios: []testbenchv1alpha1.Scenario{
-								{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}},
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
-			defer cleanupExperiment("exp-legacy-finalizer")
-
-			Expect(reconcileExperiment("exp-legacy-finalizer")).To(Succeed())
-
-			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name: "exp-legacy-finalizer", Namespace: namespace,
-			}, exp)).To(Succeed())
-			Expect(exp.Finalizers).To(BeEmpty())
-		})
 	})
 
 	Context("OTel env var injection", func() {
