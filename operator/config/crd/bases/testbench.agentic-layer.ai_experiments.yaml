@@ -247,9 +247,6 @@ spec:
                   enabled:
                     description: Enabled controls whether the experiment runs automatically
                     type: boolean
-                  event:
-                    description: Event that triggers execution (e.g., "on_push", "on_schedule")
-                    type: string
                 type: object
             required:
             - agentRef

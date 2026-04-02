@@ -168,10 +168,6 @@ type TriggerSpec struct {
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
 
-	// Event that triggers execution (e.g., "on_push", "on_schedule")
-	// +optional
-	Event string `json:"event,omitempty"`
-
 	// ConcurrencyPolicy defines how concurrent executions are handled
 	// +optional
 	// +kubebuilder:validation:Enum=Allow;Forbid;Replace

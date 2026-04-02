@@ -617,11 +617,8 @@ func (r *ExperimentReconciler) updateStatus(
 	return r.Status().Update(ctx, experiment)
 }
 
-// resolveTriggerEvent returns the trigger event, defaulting to "modified".
-func (r *ExperimentReconciler) resolveTriggerEvent(experiment *testbenchv1alpha1.Experiment) string {
-	if experiment.Spec.Trigger != nil && experiment.Spec.Trigger.Event != "" {
-		return strings.ToLower(experiment.Spec.Trigger.Event)
-	}
+// resolveTriggerEvent returns the trigger event, always "modified".
+func (r *ExperimentReconciler) resolveTriggerEvent(_ *testbenchv1alpha1.Experiment) string {
 	return "modified"
 }
 
