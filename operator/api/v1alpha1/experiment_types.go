@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -46,7 +47,27 @@ type S3Source struct {
 	Key string `json:"key"`
 }
 
-// DatasetSource defines where to load the test dataset from
+// InlineDataset defines an inline experiment dataset with scenarios, model, and threshold.
+type InlineDataset struct {
+	// LLM model used for evaluation (e.g., "gemini-2.5-flash-lite")
+	// +optional
+	LLMAsAJudgeModel string `json:"llmAsAJudgeModel,omitempty"`
+
+	// Default threshold for all metrics (0.0-1.0)
+	// +optional
+	// +kubebuilder:validation:Minimum=0.0
+	// +kubebuilder:validation:Maximum=1.0
+	DefaultThreshold *float64 `json:"defaultThreshold,omitempty"`
+
+	// Test scenarios
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	Scenarios []Scenario `json:"scenarios"`
+}
+
+// DatasetSource defines where to load the test dataset from.
+// Exactly one of s3, url, or inline must be set.
+// +kubebuilder:validation:XValidation:rule="(has(self.s3) ? 1 : 0) + (has(self.url) ? 1 : 0) + (has(self.inline) ? 1 : 0) == 1",message="exactly one of s3, url, or inline must be set"
 type DatasetSource struct {
 	// S3 source configuration
 	// +optional
@@ -55,6 +76,10 @@ type DatasetSource struct {
 	// URL source (HTTP/HTTPS)
 	// +optional
 	URL string `json:"url,omitempty"`
+
+	// Inline dataset with scenarios
+	// +optional
+	Inline *InlineDataset `json:"inline,omitempty"`
 }
 
 // ToolCall represents an expected tool invocation
@@ -154,30 +179,23 @@ type TriggerSpec struct {
 }
 
 // ExperimentSpec defines the desired state of Experiment
-// +kubebuilder:validation:XValidation:rule="!(has(self.dataset) && has(self.scenarios))",message="dataset and scenarios are mutually exclusive"
 type ExperimentSpec struct {
 	// Reference to the Agent to evaluate
 	// +kubebuilder:validation:Required
 	AgentRef AgentRef `json:"agentRef"`
 
-	// Source of the test dataset (mutually exclusive with scenarios)
+	// AiGatewayRef references an AiGateway resource for LLM access during evaluation.
+	// Only Name and Namespace fields are used.
 	// +optional
-	Dataset *DatasetSource `json:"dataset,omitempty"`
+	AiGatewayRef *corev1.ObjectReference `json:"aiGatewayRef,omitempty"`
 
-	// LLM model used for evaluation (e.g., "gemini-2.5-flash-lite", "gpt-4o")
-	// +optional
-	LLMAsAJudgeModel string `json:"llmAsAJudgeModel,omitempty"`
+	// Source of the test dataset
+	// +kubebuilder:validation:Required
+	Dataset DatasetSource `json:"dataset"`
 
-	// Default threshold for all metrics (0.0-1.0)
+	// OTLP endpoint URL for publishing metrics (e.g., "http://lgtm.monitoring.svc.cluster.local:4318")
 	// +optional
-	// +kubebuilder:validation:Minimum=0.0
-	// +kubebuilder:validation:Maximum=1.0
-	// +kubebuilder:default=0.9
-	DefaultThreshold float64 `json:"defaultThreshold,omitempty"`
-
-	// Inline test scenarios (mutually exclusive with dataset)
-	// +optional
-	Scenarios []Scenario `json:"scenarios,omitempty"`
+	OTLPEndpoint string `json:"otlpEndpoint,omitempty"`
 
 	// Trigger configuration
 	// +optional

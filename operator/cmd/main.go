@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -35,6 +36,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	runtimev1alpha1 "github.com/agentic-layer/agent-runtime-operator/api/v1alpha1"
 	testbenchv1alpha1 "github.com/agentic-layer/testbench/operator/api/v1alpha1"
 	"github.com/agentic-layer/testbench/operator/internal/controller"
 	// +kubebuilder:scaffold:imports
@@ -49,6 +51,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(testbenchv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(runtimev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -145,13 +148,24 @@ func main() {
 	}
 
 	if err = (&controller.ExperimentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("experiment-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Experiment")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	gc := &controller.GarbageCollector{
+		Client:   mgr.GetClient(),
+		Interval: 24 * time.Hour,
+		Logger:   ctrl.Log.WithName("garbage-collector"),
+	}
+	if err := mgr.Add(gc); err != nil {
+		setupLog.Error(err, "unable to add garbage collector")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

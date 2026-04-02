@@ -74,3 +74,46 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           helm push *.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
+  operator:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: 'actions/checkout@v6'
+        with:
+          fetch-depth: 0
+
+      - name: Set VERSION from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker Build & Push
+        working-directory: operator
+        run: |
+          make docker-buildx
+
+      - name: Build Installer
+        working-directory: operator
+        run: |
+          make build-installer
+
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+        run: |
+          gh release create "$tag" \
+              --repo="$GITHUB_REPOSITORY" \
+              --title="${tag#v}" \
+              --generate-notes \
+              operator/dist/install.yaml

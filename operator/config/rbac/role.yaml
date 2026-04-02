@@ -5,6 +5,33 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - runtime.agentic-layer.ai
+  resources:
+  - aigateways
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - testbench.agentic-layer.ai
   resources:
   - experiments
@@ -19,14 +46,32 @@ rules:
 - apiGroups:
   - testbench.agentic-layer.ai
   resources:
-  - experiments/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - testbench.agentic-layer.ai
-  resources:
   - experiments/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - tests.testkube.io
+  resources:
+  - testtriggers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testworkflows.testkube.io
+  resources:
+  - testworkflows
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

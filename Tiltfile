@@ -7,7 +7,7 @@ update_settings(max_parallel_updates=10, k8s_upsert_timeout_secs=600)
 load('ext://dotenv', 'dotenv')
 dotenv()
 
-v1alpha1.extension_repo(name='agentic-layer', url='https://github.com/agentic-layer/tilt-extensions', ref='v0.6.0')
+v1alpha1.extension_repo(name='agentic-layer', url='https://github.com/agentic-layer/tilt-extensions', ref='v0.13.0')
 
 v1alpha1.extension(name='cert-manager', repo_name='agentic-layer', repo_path='cert-manager')
 load('ext://cert-manager', 'cert_manager_install')
@@ -56,7 +56,7 @@ k8s_yaml(helm(
 # Apply local development manifests
 k8s_yaml(kustomize('deploy/local'))
 
-k8s_resource('ai-gateway-litellm', port_forwards=['11001:4000'])
+k8s_resource('ai-gateway', port_forwards=['11001:4000'])
 k8s_resource('weather-agent', port_forwards='11010:8000', labels=['agents'], resource_deps=['agent-runtime'])
 k8s_resource('lgtm', port_forwards=['11000:3000', '4318:4318'])
 
