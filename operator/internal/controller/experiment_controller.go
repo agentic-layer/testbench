@@ -444,6 +444,21 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 		}
 	}
 
+	// Add cron schedule as a TestWorkflow event if configured.
+	if experiment.Spec.Schedule != nil {
+		cronjob := map[string]interface{}{
+			"cron": experiment.Spec.Schedule.Cron,
+		}
+		if experiment.Spec.Schedule.Timezone != "" {
+			cronjob["timezone"] = experiment.Spec.Schedule.Timezone
+		}
+		spec["events"] = []interface{}{
+			map[string]interface{}{
+				"cronjob": cronjob,
+			},
+		}
+	}
+
 	// For inline mode, mount the pre-populated ConfigMap as the experiment file.
 	if experiment.Spec.Dataset.Inline != nil {
 		spec["content"] = map[string]interface{}{

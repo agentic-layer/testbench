@@ -81,5 +81,5 @@ spec:
               metrics:
                 - metricName: AgentGoalAccuracyWithoutReference
                 - metricName: ToolCallAccuracy
-  trigger:
-    enabled: true
+  schedule:
+    cron: "0 * * * *"

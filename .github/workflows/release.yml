@@ -107,6 +107,17 @@ jobs:
         run: |
           make build-installer
 
+      - name: 'Setup Flux CLI'
+        uses: fluxcd/flux2/action@main
+
+      - name: 'Flux Build & Push'
+        run: |
+          make flux-push
+
+      - name: 'Flux Tag Latest'
+        run: |
+          make flux-tag-latest
+
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

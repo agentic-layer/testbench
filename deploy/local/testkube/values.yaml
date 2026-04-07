@@ -1,3 +1,5 @@
 global:
   testWorkflows:
     createOfficialTemplates: false
+cronJobs:
+  enabled: true

@@ -471,6 +471,147 @@ var _ = Describe("Experiment Controller", func() {
 
 	})
 
+	Context("Schedule management", func() {
+		const expName = "exp-schedule"
+
+		createExperimentWithSchedule := func(schedule *testbenchv1alpha1.ScheduleSpec, trigger *testbenchv1alpha1.TriggerSpec) {
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "my-agent", Namespace: "agents"},
+					Dataset:  testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
+					Schedule: schedule,
+					Trigger:  trigger,
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+		}
+
+		AfterEach(func() {
+			cleanupExperiment(expName)
+		})
+
+		It("should include cron event in TestWorkflow when schedule is set", func() {
+			createExperimentWithSchedule(&testbenchv1alpha1.ScheduleSpec{
+				Cron:     "0 3 * * *",
+				Timezone: "Europe/Berlin",
+			}, nil)
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName(expName, namespace, "workflow"),
+				Namespace: testkubeNamespace,
+			}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+			events := spec["events"].([]interface{})
+			Expect(events).To(HaveLen(1))
+			cronjob := events[0].(map[string]interface{})["cronjob"].(map[string]interface{})
+			Expect(cronjob["cron"]).To(Equal("0 3 * * *"))
+			Expect(cronjob["timezone"]).To(Equal("Europe/Berlin"))
+		})
+
+		It("should omit events from TestWorkflow when schedule is nil", func() {
+			createExperimentWithSchedule(nil, nil)
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName(expName, namespace, "workflow"),
+				Namespace: testkubeNamespace,
+			}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+			Expect(spec).NotTo(HaveKey("events"))
+		})
+
+		It("should include cron event without timezone when timezone is empty", func() {
+			createExperimentWithSchedule(&testbenchv1alpha1.ScheduleSpec{
+				Cron: "*/30 * * * *",
+			}, nil)
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName(expName, namespace, "workflow"),
+				Namespace: testkubeNamespace,
+			}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+			events := spec["events"].([]interface{})
+			Expect(events).To(HaveLen(1))
+			cronjob := events[0].(map[string]interface{})["cronjob"].(map[string]interface{})
+			Expect(cronjob["cron"]).To(Equal("*/30 * * * *"))
+			Expect(cronjob).NotTo(HaveKey("timezone"))
+		})
+
+		It("should create both schedule events and TestTrigger independently", func() {
+			createExperimentWithSchedule(
+				&testbenchv1alpha1.ScheduleSpec{Cron: "0 3 * * *"},
+				&testbenchv1alpha1.TriggerSpec{Enabled: true, ConcurrencyPolicy: "Allow"},
+			)
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			By("verifying TestWorkflow has cron events")
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName(expName, namespace, "workflow"),
+				Namespace: testkubeNamespace,
+			}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+			events := spec["events"].([]interface{})
+			Expect(events).To(HaveLen(1))
+
+			By("verifying TestTrigger also exists")
+			trig := &unstructured.Unstructured{}
+			trig.SetGroupVersionKind(testTriggerGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName(expName, namespace, "trigger"),
+				Namespace: testkubeNamespace,
+			}, trig)).To(Succeed())
+		})
+
+		It("should remove events from TestWorkflow when schedule is removed", func() {
+			By("creating experiment with schedule")
+			createExperimentWithSchedule(&testbenchv1alpha1.ScheduleSpec{
+				Cron: "0 3 * * *",
+			}, nil)
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName(expName, namespace, "workflow"),
+				Namespace: testkubeNamespace,
+			}, wf)).To(Succeed())
+			spec := wf.Object["spec"].(map[string]interface{})
+			Expect(spec).To(HaveKey("events"))
+
+			By("removing the schedule")
+			exp := &testbenchv1alpha1.Experiment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: expName, Namespace: namespace}, exp)).To(Succeed())
+			exp.Spec.Schedule = nil
+			Expect(k8sClient.Update(ctx, exp)).To(Succeed())
+
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf2 := &unstructured.Unstructured{}
+			wf2.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      resourceName(expName, namespace, "workflow"),
+				Namespace: testkubeNamespace,
+			}, wf2)).To(Succeed())
+			spec2 := wf2.Object["spec"].(map[string]interface{})
+			Expect(spec2).NotTo(HaveKey("events"))
+		})
+	})
+
 	Context("Status management", func() {
 		const expName = "exp-status"
 

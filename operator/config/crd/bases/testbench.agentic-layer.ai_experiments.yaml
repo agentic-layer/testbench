@@ -233,6 +233,23 @@ spec:
               otlpEndpoint:
                 description: OTLP endpoint URL for publishing metrics (e.g., "http://lgtm.monitoring.svc.cluster.local:4318")
                 type: string
+              schedule:
+                description: |-
+                  Schedule configures cron-based execution of the experiment workflow.
+                  Independent of trigger (event-based execution).
+                properties:
+                  cron:
+                    description: Cron expression (standard Kubernetes cron format,
+                      e.g., "0 3 * * *")
+                    pattern: ^(\S+\s){4}\S+$
+                    type: string
+                  timezone:
+                    description: IANA timezone name (e.g., "Europe/Berlin"). Defaults
+                      to cluster local time.
+                    type: string
+                required:
+                - cron
+                type: object
               trigger:
                 description: Trigger configuration
                 properties:

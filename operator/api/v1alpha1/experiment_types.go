@@ -174,6 +174,18 @@ type TriggerSpec struct {
 	ConcurrencyPolicy string `json:"concurrencyPolicy,omitempty"`
 }
 
+// ScheduleSpec defines cron-based scheduling for the experiment workflow.
+type ScheduleSpec struct {
+	// Cron expression (standard Kubernetes cron format, e.g., "0 3 * * *")
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^(\S+\s){4}\S+$`
+	Cron string `json:"cron"`
+
+	// IANA timezone name (e.g., "Europe/Berlin"). Defaults to cluster local time.
+	// +optional
+	Timezone string `json:"timezone,omitempty"`
+}
+
 // ExperimentSpec defines the desired state of Experiment
 type ExperimentSpec struct {
 	// Reference to the Agent to evaluate
@@ -192,6 +204,11 @@ type ExperimentSpec struct {
 	// OTLP endpoint URL for publishing metrics (e.g., "http://lgtm.monitoring.svc.cluster.local:4318")
 	// +optional
 	OTLPEndpoint string `json:"otlpEndpoint,omitempty"`
+
+	// Schedule configures cron-based execution of the experiment workflow.
+	// Independent of trigger (event-based execution).
+	// +optional
+	Schedule *ScheduleSpec `json:"schedule,omitempty"`
 
 	// Trigger configuration
 	// +optional
