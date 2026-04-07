@@ -32,7 +32,7 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 IMAGE_TAG_BASE ?= ghcr.io/agentic-layer/testbench/operator
 
 # MANIFESTS_IMG defines the image name for flux manifests.
-MANIFESTS_IMG ?= oci://ghcr.io/agentic-layer/manifests/testbench-operator:$(VERSION)
+MANIFESTS_IMG ?= oci://ghcr.io/agentic-layer/testbench/manifests/testbench-operator:$(VERSION)
 
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
