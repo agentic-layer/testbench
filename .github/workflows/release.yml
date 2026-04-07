@@ -111,10 +111,12 @@ jobs:
         uses: fluxcd/flux2/action@main
 
       - name: 'Flux Build & Push'
+        working-directory: operator
         run: |
           make flux-push
 
       - name: 'Flux Tag Latest'
+        working-directory: operator
         run: |
           make flux-tag-latest
 
