@@ -31,6 +31,9 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # agentic-layer.ai/operator-bundle:$VERSION and agentic-layer.ai/operator-catalog:$VERSION.
 IMAGE_TAG_BASE ?= ghcr.io/agentic-layer/testbench/operator
 
+# MANIFESTS_IMG defines the image name for flux manifests.
+MANIFESTS_IMG ?= oci://ghcr.io/agentic-layer/manifests/testbench-operator:$(VERSION)
+
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
 BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-bundle:v$(VERSION)
@@ -171,6 +174,19 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+
+.PHONY: flux-push
+flux-push: manifests generate kustomize ## Push the manifests to a oci repository for FluxCD to consume.
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	flux push artifact $(MANIFESTS_IMG) \
+    	--path="./config" \
+    	--source="$(shell git config --get remote.origin.url)" \
+    	--revision="$(VERSION)"
+
+.PHONY: flux-tag-latest
+flux-tag-latest:
+	flux tag artifact $(MANIFESTS_IMG) --tag latest
+
 
 ##@ Deployment
 
