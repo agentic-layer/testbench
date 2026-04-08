@@ -955,20 +955,23 @@ var _ = Describe("Experiment Controller", func() {
 
 	})
 
-	Context("OTel env var injection", func() {
-		const expName = "exp-otel"
+	Context("Generic env var injection", func() {
+		const expName = "exp-env"
 
 		AfterEach(func() {
 			cleanupExperiment(expName)
 		})
 
-		It("should inject OTEL_EXPORTER_OTLP_ENDPOINT as direct value from spec.otlpEndpoint", func() {
+		It("should inject env vars with direct values into the TestWorkflow", func() {
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
-					AgentRef:     testbenchv1alpha1.AgentRef{Name: "agent"},
-					OTLPEndpoint: "http://lgtm.monitoring.svc.cluster.local:4318",
-					Dataset:      testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent"},
+					Env: []corev1.EnvVar{
+						{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "http://lgtm.monitoring.svc.cluster.local:4318"},
+						{Name: "MY_CUSTOM_VAR", Value: "custom-value"},
+					},
+					Dataset: testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
 				},
 			}
 			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
@@ -981,13 +984,18 @@ var _ = Describe("Experiment Controller", func() {
 			spec := wf.Object["spec"].(map[string]interface{})
 			container := spec["container"].(map[string]interface{})
 			envList := container["env"].([]interface{})
-			Expect(envList).To(HaveLen(1))
-			envVar := envList[0].(map[string]interface{})
-			Expect(envVar["name"]).To(Equal(otelEndpointKey))
-			Expect(envVar["value"]).To(Equal("http://lgtm.monitoring.svc.cluster.local:4318"))
+			Expect(envList).To(HaveLen(2))
+
+			env0 := envList[0].(map[string]interface{})
+			Expect(env0["name"]).To(Equal("OTEL_EXPORTER_OTLP_ENDPOINT"))
+			Expect(env0["value"]).To(Equal("http://lgtm.monitoring.svc.cluster.local:4318"))
+
+			env1 := envList[1].(map[string]interface{})
+			Expect(env1["name"]).To(Equal("MY_CUSTOM_VAR"))
+			Expect(env1["value"]).To(Equal("custom-value"))
 		})
 
-		It("should omit container env when otlpEndpoint is not set", func() {
+		It("should omit container env when env is empty", func() {
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
 				Spec: testbenchv1alpha1.ExperimentSpec{
@@ -1004,7 +1012,46 @@ var _ = Describe("Experiment Controller", func() {
 
 			spec := wf.Object["spec"].(map[string]interface{})
 			_, hasContainer := spec["container"]
-			Expect(hasContainer).To(BeFalse(), "spec.container should be absent when otlpEndpoint is not set")
+			Expect(hasContainer).To(BeFalse(), "spec.container should be absent when env is empty")
+		})
+
+		It("should inject env var with secretKeyRef", func() {
+			exp := &testbenchv1alpha1.Experiment{
+				ObjectMeta: metav1.ObjectMeta{Name: expName, Namespace: namespace},
+				Spec: testbenchv1alpha1.ExperimentSpec{
+					AgentRef: testbenchv1alpha1.AgentRef{Name: "agent"},
+					Env: []corev1.EnvVar{
+						{
+							Name: "SECRET_VAR",
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "my-secret"},
+									Key:                  "token",
+								},
+							},
+						},
+					},
+					Dataset: testbenchv1alpha1.DatasetSource{Inline: &testbenchv1alpha1.InlineDataset{Scenarios: []testbenchv1alpha1.Scenario{{Name: "s", Steps: []testbenchv1alpha1.Step{{Input: "q"}}}}}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, exp)).To(Succeed())
+			Expect(reconcileExperiment(expName)).To(Succeed())
+
+			wf := &unstructured.Unstructured{}
+			wf.SetGroupVersionKind(testWorkflowGVK)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName(expName, namespace, "workflow"), Namespace: testkubeNamespace}, wf)).To(Succeed())
+
+			spec := wf.Object["spec"].(map[string]interface{})
+			container := spec["container"].(map[string]interface{})
+			envList := container["env"].([]interface{})
+			Expect(envList).To(HaveLen(1))
+
+			env0 := envList[0].(map[string]interface{})
+			Expect(env0["name"]).To(Equal("SECRET_VAR"))
+			valueFrom := env0["valueFrom"].(map[string]interface{})
+			secretRef := valueFrom["secretKeyRef"].(map[string]interface{})
+			Expect(secretRef["name"]).To(Equal("my-secret"))
+			Expect(secretRef["key"]).To(Equal("token"))
 		})
 	})
 
