@@ -135,6 +135,13 @@ func (in *ExperimentSpec) DeepCopyInto(out *ExperimentSpec) {
 		**out = **in
 	}
 	in.Dataset.DeepCopyInto(&out.Dataset)
+	if in.Env != nil {
+		in, out := &in.Env, &out.Env
+		*out = make([]v1.EnvVar, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.Schedule != nil {
 		in, out := &in.Schedule, &out.Schedule
 		*out = new(ScheduleSpec)

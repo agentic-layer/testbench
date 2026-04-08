@@ -201,9 +201,11 @@ type ExperimentSpec struct {
 	// +kubebuilder:validation:Required
 	Dataset DatasetSource `json:"dataset"`
 
-	// OTLP endpoint URL for publishing metrics (e.g., "http://lgtm.monitoring.svc.cluster.local:4318")
+	// Env defines environment variables to inject into the TestWorkflow containers.
+	// Uses the standard Kubernetes EnvVar schema (supports value, valueFrom with secretKeyRef, configMapKeyRef, etc.).
+	// User-defined env vars override any operator-set vars with the same name.
 	// +optional
-	OTLPEndpoint string `json:"otlpEndpoint,omitempty"`
+	Env []corev1.EnvVar `json:"env,omitempty"`
 
 	// Schedule configures cron-based execution of the experiment workflow.
 	// Independent of trigger (event-based execution).
