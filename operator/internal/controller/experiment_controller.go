@@ -47,7 +47,6 @@ import (
 const (
 	conditionReady            = "Ready"
 	conditionWorkflowReady    = "WorkflowReady"
-	otelEndpointKey           = "OTEL_EXPORTER_OTLP_ENDPOINT"
 	defaultAgentPort          = "8000"
 	testkubeNamespace         = "testkube"
 	defaultAiGatewayNamespace = "ai-gateway"
@@ -433,14 +432,50 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 		"use": useTemplates,
 	}
 
-	if experiment.Spec.OTLPEndpoint != "" {
+	if len(experiment.Spec.Env) > 0 {
+		envList := make([]interface{}, 0, len(experiment.Spec.Env))
+		for _, e := range experiment.Spec.Env {
+			envVar := map[string]interface{}{
+				"name": e.Name,
+			}
+			if e.Value != "" {
+				envVar["value"] = e.Value
+			}
+			if e.ValueFrom != nil {
+				valueFrom := map[string]interface{}{}
+				if e.ValueFrom.SecretKeyRef != nil {
+					ref := map[string]interface{}{
+						"name": e.ValueFrom.SecretKeyRef.Name,
+						"key":  e.ValueFrom.SecretKeyRef.Key,
+					}
+					if e.ValueFrom.SecretKeyRef.Optional != nil {
+						ref["optional"] = *e.ValueFrom.SecretKeyRef.Optional
+					}
+					valueFrom["secretKeyRef"] = ref
+				}
+				if e.ValueFrom.ConfigMapKeyRef != nil {
+					ref := map[string]interface{}{
+						"name": e.ValueFrom.ConfigMapKeyRef.Name,
+						"key":  e.ValueFrom.ConfigMapKeyRef.Key,
+					}
+					if e.ValueFrom.ConfigMapKeyRef.Optional != nil {
+						ref["optional"] = *e.ValueFrom.ConfigMapKeyRef.Optional
+					}
+					valueFrom["configMapKeyRef"] = ref
+				}
+				if e.ValueFrom.FieldRef != nil {
+					valueFrom["fieldRef"] = map[string]interface{}{
+						"fieldPath": e.ValueFrom.FieldRef.FieldPath,
+					}
+				}
+				if len(valueFrom) > 0 {
+					envVar["valueFrom"] = valueFrom
+				}
+			}
+			envList = append(envList, envVar)
+		}
 		spec["container"] = map[string]interface{}{
-			"env": []interface{}{
-				map[string]interface{}{
-					"name":  otelEndpointKey,
-					"value": experiment.Spec.OTLPEndpoint,
-				},
-			},
+			"env": envList,
 		}
 	}
 
