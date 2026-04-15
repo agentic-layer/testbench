@@ -141,7 +141,7 @@ class RagasFrameworkAdapter(FrameworkAdapter):
                 f"Unknown RAGAS metric class '{class_name}'.\nAvailable: {', '.join(sorted(self._classes.keys()))}"
             )
 
-        client = AsyncOpenAI(api_key="Placeholder->NotUsed")
+        client = AsyncOpenAI(api_key="testbench")
         llm_instance = llm_factory(llm, client=client)  # type: ignore[arg-type]
 
         metric_class = self._classes[class_name]
