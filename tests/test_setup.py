@@ -193,3 +193,47 @@ def test_main_with_invalid_s3_key(temp_dir, monkeypatch):
             main("test-bucket", "nonexistent.csv")
     finally:
         os.chdir(original_cwd)
+
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+from setup import load_dataframe_from_file, load_dataframe_from_url  # noqa: E402
+
+
+class TestLoadDataframeFromUrl:
+    def test_download_csv_from_url(self):
+        csv_content = b"user_input,reference\nWhat is AI?,Artificial Intelligence"
+        mock_response = MagicMock()
+        mock_response.read.return_value = csv_content
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("setup.urllib.request.urlopen", return_value=mock_response):
+            df = load_dataframe_from_url("https://example.com/dataset.csv")
+            assert len(df) == 1
+            assert df.iloc[0]["user_input"] == "What is AI?"
+
+
+class TestLoadDataframeFromFile:
+    def test_load_csv_from_local_file(self, tmp_path):
+        csv_file = tmp_path / "dataset.csv"
+        csv_file.write_text("user_input,reference\nWhat is AI?,Artificial Intelligence")
+
+        df = load_dataframe_from_file(str(csv_file))
+        assert len(df) == 1
+        assert df.iloc[0]["user_input"] == "What is AI?"
+
+    def test_load_json_from_local_file(self, tmp_path):
+        json_file = tmp_path / "dataset.json"
+        json_file.write_text('[{"user_input": "What is AI?", "reference": "Artificial Intelligence"}]')
+
+        df = load_dataframe_from_file(str(json_file))
+        assert len(df) == 1
+        assert df.iloc[0]["user_input"] == "What is AI?"
+
+    def test_unsupported_file_format(self, tmp_path):
+        txt_file = tmp_path / "dataset.txt"
+        txt_file.write_text("some data")
+
+        with pytest.raises(TypeError, match="Unsupported"):
+            load_dataframe_from_file(str(txt_file))

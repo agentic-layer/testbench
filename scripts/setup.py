@@ -12,6 +12,7 @@ Usage::
 import argparse
 import logging
 import os
+import urllib.request
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable
@@ -122,6 +123,46 @@ def create_s3_client() -> Any:
     )
 
     return s3_client
+
+
+def load_dataframe_from_url(url: str) -> DataFrame:
+    """Download a dataset file from a URL and return as a DataFrame.
+
+    Args:
+        url: HTTP(S) URL to the dataset file (CSV, JSON, or Parquet).
+
+    Returns:
+        Pandas DataFrame with the dataset content.
+    """
+    suffix = Path(url.split("?")[0]).suffix.lower()
+    converter = get_converter(f"file{suffix}")
+
+    logger.info("Downloading dataset from %s...", url)
+    with urllib.request.urlopen(url) as response:  # noqa: S310  # nosec B310
+        file_content = response.read()
+    logger.info("Downloaded %d bytes", len(file_content))
+
+    return converter(BytesIO(file_content))
+
+
+def load_dataframe_from_file(file_path: str) -> DataFrame:
+    """Load a dataset file from a local path and return as a DataFrame.
+
+    Args:
+        file_path: Local path to the dataset file (CSV, JSON, or Parquet).
+
+    Returns:
+        Pandas DataFrame with the dataset content.
+    """
+    path = Path(file_path)
+    converter = get_converter(path.name)
+
+    logger.info("Loading dataset from %s...", file_path)
+    with open(path, "rb") as f:
+        file_content = f.read()
+    logger.info("Loaded %d bytes", len(file_content))
+
+    return converter(BytesIO(file_content))
 
 
 def main(bucket: str, key: str) -> None:
