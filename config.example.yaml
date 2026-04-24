@@ -1,0 +1,39 @@
+# Pipeline Configuration
+# Run with: uv run python3 scripts/pipeline.py config.yaml
+
+# Dataset source — how to acquire the test dataset
+dataset:
+  # source: url | file | s3
+  source: url
+  url: "https://example.com/dataset.csv"
+
+  # For local file:
+  # source: file
+  # path: "./data/dataset.csv"
+
+  # For S3/MinIO:
+  # source: s3
+  # bucket: "datasets"
+  # key: "dataset.csv"
+  # endpoint: "http://minio:9000"
+  # Requires env vars: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+
+# Agent to evaluate — must expose A2A protocol endpoint
+agent:
+  url: "https://my-agent.example.com"
+
+# Evaluation settings
+evaluate:
+  # Optional: override the LLM model used for evaluation (overrides experiment JSON)
+  # Requires env var: GOOGLE_API_KEY (for Gemini) or OPENAI_API_KEY (for OpenAI)
+  model: "gemini-2.5-flash-lite"
+
+# OpenTelemetry — optional, if omitted tracing + publish are skipped
+# otlp:
+#   endpoint: "https://otlp.grafana.net/otlp"
+
+# Workflow metadata
+workflow:
+  name: "my-evaluation"
+  # execution_id: "auto"    # defaults to $GITHUB_RUN_ID or UUID
+  # execution_number: 1     # defaults to $GITHUB_RUN_NUMBER or 1
