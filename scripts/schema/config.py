@@ -10,7 +10,7 @@ from pydantic import BaseModel, model_validator
 class DatasetConfig(BaseModel):
     """Dataset source configuration."""
 
-    source: Literal["url", "file", "s3"]
+    source: Literal["url", "file", "s3", "experiment"]
     url: str | None = None
     path: str | None = None
     bucket: str | None = None
@@ -24,6 +24,8 @@ class DatasetConfig(BaseModel):
             raise ValueError("'url' field is required when source is 'url'")
         if self.source == "file" and not self.path:
             raise ValueError("'path' field is required when source is 'file'")
+        if self.source == "experiment" and not self.path:
+            raise ValueError("'path' field is required when source is 'experiment'")
         if self.source == "s3":
             missing = [f for f in ("bucket", "key", "endpoint") if not getattr(self, f)]
             if missing:

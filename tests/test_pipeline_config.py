@@ -109,6 +109,25 @@ class TestPipelineConfigOptionalFields:
         assert config.workflow.execution_id == "auto"
         assert config.workflow.execution_number == 1
 
+    def test_valid_experiment_source(self):
+        config_dict = {
+            "dataset": {"source": "experiment", "path": "./data/experiment.json"},
+            "agent": {"url": "https://my-agent.example.com"},
+            "workflow": {"name": "test-workflow"},
+        }
+        config = PipelineConfig.model_validate(config_dict)
+        assert config.dataset.source == "experiment"
+        assert config.dataset.path == "./data/experiment.json"
+
+    def test_experiment_source_missing_path(self):
+        config_dict = {
+            "dataset": {"source": "experiment"},
+            "agent": {"url": "https://my-agent.example.com"},
+            "workflow": {"name": "test-workflow"},
+        }
+        with pytest.raises(ValueError, match="path"):
+            PipelineConfig.model_validate(config_dict)
+
     def test_invalid_source_type(self):
         config_dict = {
             "dataset": {"source": "ftp", "url": "ftp://example.com/dataset.csv"},

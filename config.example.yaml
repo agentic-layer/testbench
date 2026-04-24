@@ -18,6 +18,10 @@ dataset:
   # endpoint: "http://minio:9000"
   # Requires env vars: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
 
+  # For pre-built experiment JSON (skips dataset conversion):
+  # source: experiment
+  # path: "./data/datasets/experiment.json"
+
 # Agent to evaluate — must expose A2A protocol endpoint
 agent:
   url: "https://my-agent.example.com"

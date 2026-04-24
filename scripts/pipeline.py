@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import logging
 import os
+import shutil
 import sys
 import time
 import uuid
@@ -67,6 +68,14 @@ def setup_phase(config: PipelineConfig) -> None:
         # Pydantic validator guarantees path is set when source=file
         df = load_dataframe_from_file(config.dataset.path)  # type: ignore[arg-type]
         dataframe_to_experiment(df)
+    elif source == "experiment":
+        # Pre-built experiment.json — copy directly to expected path
+        from pathlib import Path
+
+        output_path = Path(EXPERIMENT_PATH)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(config.dataset.path, output_path)  # type: ignore[arg-type]
+        logger.info("[setup] Copied experiment from %s", config.dataset.path)
     elif source == "s3":
         # Pydantic validator guarantees bucket, key, endpoint are set when source=s3
         if config.dataset.endpoint:
