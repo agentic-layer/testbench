@@ -8,7 +8,7 @@ class TestPipelineConfigUrlSource:
         config_dict = {
             "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         config = PipelineConfig.model_validate(config_dict)
         assert config.dataset.source == "url"
@@ -16,13 +16,13 @@ class TestPipelineConfigUrlSource:
         assert config.agent.url == "https://my-agent.example.com"
         assert config.evaluate.model is None
         assert config.otlp is None
-        assert config.workflow.name == "test-workflow"
+        assert config.experiment.name == "test-experiment"
 
     def test_url_source_missing_url_field(self):
         config_dict = {
             "dataset": {"source": "url"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         with pytest.raises(ValueError, match="url"):
             PipelineConfig.model_validate(config_dict)
@@ -33,7 +33,7 @@ class TestPipelineConfigFileSource:
         config_dict = {
             "dataset": {"source": "file", "path": "./data/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         config = PipelineConfig.model_validate(config_dict)
         assert config.dataset.source == "file"
@@ -43,7 +43,7 @@ class TestPipelineConfigFileSource:
         config_dict = {
             "dataset": {"source": "file"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         with pytest.raises(ValueError, match="path"):
             PipelineConfig.model_validate(config_dict)
@@ -59,7 +59,7 @@ class TestPipelineConfigS3Source:
                 "endpoint": "http://minio:9000",
             },
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         config = PipelineConfig.model_validate(config_dict)
         assert config.dataset.source == "s3"
@@ -71,7 +71,7 @@ class TestPipelineConfigS3Source:
         config_dict = {
             "dataset": {"source": "s3", "key": "dataset.csv", "endpoint": "http://minio:9000"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         with pytest.raises(ValueError, match="bucket"):
             PipelineConfig.model_validate(config_dict)
@@ -83,7 +83,7 @@ class TestPipelineConfigOptionalFields:
             "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
             "evaluate": {"model": "gemini-2.5-flash-lite"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         config = PipelineConfig.model_validate(config_dict)
         assert config.evaluate.model == "gemini-2.5-flash-lite"
@@ -93,7 +93,7 @@ class TestPipelineConfigOptionalFields:
             "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
             "otlp": {"endpoint": "https://otlp.grafana.net/otlp"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         config = PipelineConfig.model_validate(config_dict)
         assert config.otlp is not None
@@ -103,7 +103,7 @@ class TestPipelineConfigOptionalFields:
         config_dict = {
             "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         config = PipelineConfig.model_validate(config_dict)
         assert config.workflow.execution_id == "auto"
@@ -113,7 +113,7 @@ class TestPipelineConfigOptionalFields:
         config_dict = {
             "dataset": {"source": "experiment", "path": "./data/experiment.json"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         config = PipelineConfig.model_validate(config_dict)
         assert config.dataset.source == "experiment"
@@ -123,7 +123,7 @@ class TestPipelineConfigOptionalFields:
         config_dict = {
             "dataset": {"source": "experiment"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         with pytest.raises(ValueError, match="path"):
             PipelineConfig.model_validate(config_dict)
@@ -132,7 +132,7 @@ class TestPipelineConfigOptionalFields:
         config_dict = {
             "dataset": {"source": "ftp", "url": "ftp://example.com/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-experiment"},
         }
         with pytest.raises(ValueError, match="Input should be"):
             PipelineConfig.model_validate(config_dict)
@@ -148,7 +148,7 @@ agent:
   url: https://my-agent.example.com
 evaluate:
   model: gemini-2.5-flash-lite
-workflow:
+experiment:
   name: my-evaluation
 """
         config_file = tmp_path / "config.yaml"
@@ -161,4 +161,4 @@ workflow:
         assert config.dataset.source == "url"
         assert config.dataset.url == "https://example.com/dataset.csv"
         assert config.evaluate.model == "gemini-2.5-flash-lite"
-        assert config.workflow.name == "my-evaluation"
+        assert config.experiment.name == "my-evaluation"

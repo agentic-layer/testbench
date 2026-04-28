@@ -51,10 +51,15 @@ class OtlpConfig(BaseModel):
     endpoint: str
 
 
-class WorkflowConfig(BaseModel):
-    """Workflow metadata configuration."""
+class ExperimentConfig(BaseModel):
+    """Experiment metadata configuration."""
 
     name: str
+
+
+class WorkflowConfig(BaseModel):
+    """Workflow execution metadata configuration."""
+
     execution_id: str = "auto"
     execution_number: int = 1
 
@@ -66,4 +71,5 @@ class PipelineConfig(BaseModel):
     agent: AgentConfig
     evaluate: EvaluateConfig = EvaluateConfig()
     otlp: OtlpConfig | None = None
-    workflow: WorkflowConfig
+    experiment: ExperimentConfig
+    workflow: WorkflowConfig = WorkflowConfig()
