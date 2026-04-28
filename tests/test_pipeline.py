@@ -11,7 +11,7 @@ def minimal_config(tmp_path):
     return {
         "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
         "agent": {"url": "https://my-agent.example.com"},
-        "workflow": {"name": "test-workflow"},
+        "experiment": {"name": "test-workflow"},
     }
 
 
@@ -47,7 +47,7 @@ class TestRunPipeline:
             "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
             "otlp": {"endpoint": "https://otlp.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-workflow"},
         }
         config_path = tmp_path / "config.yaml"
         config_path.write_text(yaml.dump(config_dict))
@@ -81,7 +81,7 @@ class TestRunPipeline:
             "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
             "otlp": {"endpoint": "https://otlp.example.com"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-workflow"},
         }
         config_path = tmp_path / "config.yaml"
         config_path.write_text(yaml.dump(config_dict))
@@ -100,7 +100,7 @@ class TestRunPipeline:
             "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
             "evaluate": {"model": "gemini-2.5-flash-lite"},
-            "workflow": {"name": "test-workflow"},
+            "experiment": {"name": "test-workflow"},
         }
         config_path = tmp_path / "config.yaml"
         config_path.write_text(yaml.dump(config_dict))
