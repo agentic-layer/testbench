@@ -98,11 +98,11 @@ def run_pipeline(config_path: str) -> None:
     # Resolve workflow metadata
     execution_id = _resolve_execution_id(config.workflow.execution_id)
     execution_number = _resolve_execution_number(config.workflow.execution_number)
-    workflow_name = config.workflow.name
+    experiment_name = config.experiment.name
 
     logger.info(
-        "[pipeline] Workflow: %s (execution_id=%s, execution_number=%d)",
-        workflow_name,
+        "[pipeline] Experiment: %s (execution_id=%s, execution_number=%d)",
+        experiment_name,
         execution_id,
         execution_number,
     )
@@ -123,7 +123,7 @@ def run_pipeline(config_path: str) -> None:
     # Phase 2: Run
     logger.info("[run] Starting agent execution...")
     start = time.time()
-    asyncio.run(run_main(config.agent.url, workflow_name, EXPERIMENT_PATH))
+    asyncio.run(run_main(config.agent.url, experiment_name, EXPERIMENT_PATH))
     logger.info("[run] Completed in %.1fs", time.time() - start)
 
     # Phase 3: Evaluate
@@ -136,13 +136,13 @@ def run_pipeline(config_path: str) -> None:
     if config.otlp:
         logger.info("[publish] Starting metrics publishing...")
         start = time.time()
-        publish_metrics(EVALUATED_PATH, workflow_name, execution_id, execution_number)
+        publish_metrics(EVALUATED_PATH, experiment_name, execution_id, execution_number)
         logger.info("[publish] Completed in %.1fs", time.time() - start)
 
     # Phase 5: Visualize
     logger.info("[visualize] Generating HTML report...")
     start = time.time()
-    visualize_main(EVALUATED_PATH, REPORT_PATH, workflow_name, execution_id, execution_number)
+    visualize_main(EVALUATED_PATH, REPORT_PATH, experiment_name, execution_id, execution_number)
     logger.info("[visualize] Completed in %.1fs", time.time() - start)
 
     logger.info("[pipeline] Pipeline completed successfully")
