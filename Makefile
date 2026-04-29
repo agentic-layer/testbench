@@ -1,7 +1,7 @@
 # Testworkflows Docker Image Makefile
 
 # Image configuration
-IMAGE_NAME ?= testworkflows
+IMAGE_NAME ?= ghcr.io/agentic-layer/testbench/testworkflows
 IMAGE_TAG ?= latest
 
 # Full image reference
