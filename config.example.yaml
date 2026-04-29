@@ -36,8 +36,11 @@ evaluate:
 # otlp:
 #   endpoint: "https://otlp.grafana.net/otlp"
 
-# Workflow metadata
-workflow:
+# Experiment metadata
+experiment:
   name: "my-evaluation"
+
+# Workflow execution metadata
+workflow:
   # execution_id: "auto"    # defaults to $GITHUB_RUN_ID or UUID
   # execution_number: 1     # defaults to $GITHUB_RUN_NUMBER or 1
