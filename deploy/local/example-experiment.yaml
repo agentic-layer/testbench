@@ -1,0 +1,38 @@
+apiVersion: testbench.agentic-layer.ai/v1alpha1
+kind: Experiment
+metadata:
+  name: example-experiment
+  namespace: testkube
+spec:
+  agentRef:
+    name: weather-agent
+    namespace: sample-agents
+  aiGatewayRef:
+    name: ai-gateway
+    namespace: ai-gateway
+  env:
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      valueFrom:
+        configMapKeyRef:
+          name: otel-config
+          key: OTEL_EXPORTER_OTLP_ENDPOINT
+  dataset:
+    inline:
+      llmAsAJudgeModel: gemini-2.5-flash-lite
+      defaultThreshold: 0.9
+      scenarios:
+        - name: "Weather in New York"
+          steps:
+            - input: "What is the weather like in New York right now?"
+              reference:
+                toolCalls:
+                  - name: get_weather
+                    args:
+                      city: "New York"
+                topics:
+                  - weather
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+  trigger:
+    enabled: true
+    concurrencyPolicy: Allow

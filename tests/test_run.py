@@ -71,7 +71,7 @@ async def test_executor_on_step_success():
     """Test that on_step correctly calls A2A client and returns ExecutedStep."""
     executor = A2AExecutor(
         agent_url="http://test-agent:8000",
-        workflow_name="test-workflow",
+        experiment_name="test-workflow",
         input_path="input.json",
         output_path="output.json",
     )
@@ -125,7 +125,7 @@ async def test_executor_on_step_maintains_context():
     """Test that on_step passes context_id from previous step."""
     executor = A2AExecutor(
         agent_url="http://test-agent:8000",
-        workflow_name="test-workflow",
+        experiment_name="test-workflow",
         input_path="input.json",
         output_path="output.json",
     )
@@ -164,7 +164,7 @@ async def test_executor_on_step_increments_index():
     """Test that on_step increments step_index for deterministic IDs."""
     executor = A2AExecutor(
         agent_url="http://test-agent:8000",
-        workflow_name="test-workflow",
+        experiment_name="test-workflow",
         input_path="input.json",
         output_path="output.json",
     )
@@ -206,7 +206,7 @@ async def test_executor_before_scenario_resets_state():
     """Test that before_scenario resets context_id and step_index."""
     executor = A2AExecutor(
         agent_url="http://test-agent:8000",
-        workflow_name="test-workflow",
+        experiment_name="test-workflow",
         input_path="input.json",
         output_path="output.json",
     )
@@ -240,7 +240,7 @@ async def test_executor_before_scenario_creates_span():
     """Test that before_scenario creates an OTel span."""
     executor = A2AExecutor(
         agent_url="http://test-agent:8000",
-        workflow_name="test-workflow",
+        experiment_name="test-workflow",
         input_path="input.json",
         output_path="output.json",
     )
@@ -260,7 +260,7 @@ async def test_executor_before_scenario_creates_span():
         # Verify span was created and configured
         mock_span_factory.assert_called_once_with("scenario: Test Scenario")
         mock_span.set_attribute.assert_any_call("scenario.name", "Test Scenario")
-        mock_span.set_attribute.assert_any_call("workflow.name", "test-workflow")
+        mock_span.set_attribute.assert_any_call("experiment.name", "test-workflow")
         mock_span.set_attribute.assert_any_call("agent.url", "http://test-agent:8000")
         # Span stays open until after_scenario ends it
         mock_span.end.assert_not_called()
@@ -277,7 +277,7 @@ async def test_executor_after_scenario_sets_metadata():
     """Test that after_scenario sets id and trace_id on executed scenario."""
     executor = A2AExecutor(
         agent_url="http://test-agent:8000",
-        workflow_name="test-workflow",
+        experiment_name="test-workflow",
         input_path="input.json",
         output_path="output.json",
     )
@@ -330,7 +330,7 @@ async def test_executor_run_full_flow(tmp_path):
 
     executor = A2AExecutor(
         agent_url="http://test-agent:8000",
-        workflow_name="test-workflow",
+        experiment_name="test-workflow",
         input_path=str(input_path),
         output_path=str(output_path),
     )
@@ -424,7 +424,7 @@ async def test_executor_run_with_error_handling(tmp_path):
 
     executor = A2AExecutor(
         agent_url="http://test-agent:8000",
-        workflow_name="test-workflow",
+        experiment_name="test-workflow",
         input_path=str(input_path),
         output_path=str(output_path),
     )
@@ -489,7 +489,7 @@ async def test_main_creates_executor_and_runs(tmp_path):
 
             await main(
                 agent_url="http://test-agent:8000",
-                workflow_name="test-workflow",
+                experiment_name="test-workflow",
                 input_path=str(input_path),
             )
 
@@ -535,7 +535,7 @@ async def test_main_default_output_path(tmp_path):
                     os.chdir(tmp_path)
                     await main(
                         agent_url="http://test-agent:8000",
-                        workflow_name="test-workflow",
+                        experiment_name="test-workflow",
                         input_path=str(input_path),
                     )
 
@@ -593,7 +593,7 @@ async def test_main_integration_with_cli_args(tmp_path):
                     # Simulate CLI invocation
                     await main(
                         agent_url="http://cli-agent:9000",
-                        workflow_name="cli-workflow",
+                        experiment_name="cli-workflow",
                         input_path=str(input_path),
                     )
 

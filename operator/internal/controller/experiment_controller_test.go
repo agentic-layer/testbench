@@ -195,12 +195,21 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(templateNames).NotTo(ContainElement("setup-template"))
 			Expect(templateNames).To(ContainElements("run-template", "evaluate-template", "publish-template", "visualize-template"))
 
-			By("checking the run-template has the correct agentUrl")
+			By("checking the run-template has the correct agentUrl and experimentName")
 			for _, u := range use {
 				um := u.(map[string]interface{})
 				if um["name"] == "run-template" {
 					cfg := um["config"].(map[string]interface{})
 					Expect(cfg["agentUrl"]).To(Equal("http://my-agent.agents:8000"))
+					Expect(cfg["experimentName"]).To(Equal(expName))
+				}
+				if um["name"] == "publish-template" {
+					cfg := um["config"].(map[string]interface{})
+					Expect(cfg["experimentName"]).To(Equal(expName))
+				}
+				if um["name"] == "visualize-template" {
+					cfg := um["config"].(map[string]interface{})
+					Expect(cfg["experimentName"]).To(Equal(expName))
 				}
 			}
 		})

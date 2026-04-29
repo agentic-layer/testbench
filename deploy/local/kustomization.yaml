@@ -5,6 +5,4 @@ resources:
   - otel-config.yaml
   - otel-config-agent.yaml
   - weather-agent.yaml
-  - experiment.yaml
-  - example-workflow.yaml
-  - example-workflow-trigger.yaml
+  - example-experiment.yaml

@@ -133,7 +133,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "100 * count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", scenario_name=~\"$scenario\", result=\"pass\", name=~\"$metric\"}[$__interval])) / count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", scenario_name=~\"$scenario\", name=~\"$metric\"}[$__interval]))",
+          "expr": "100 * count by(scenario_name) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", scenario_name=~\"$scenario\", result=\"pass\", name=~\"$metric\"}[$__interval])) / count by(scenario_name) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", scenario_name=~\"$scenario\", name=~\"$metric\"}[$__interval]))",
           "legendFormat": "{{scenario_name}}",
           "range": true,
           "refId": "A"
@@ -242,7 +242,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "avg by(name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", scenario_name=~\"$scenario\", name=~\"$metric\"}[$__interval]))",
+          "expr": "avg by(name) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", scenario_name=~\"$scenario\", name=~\"$metric\"}[$__interval]))",
           "legendFormat": "{{name}}",
           "range": true,
           "refId": "A"
@@ -412,7 +412,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "avg by(execution_id, execution_number) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", scenario_name=~\"$scenario\", name=~\"$metric\"}[$__range]))",
+          "expr": "avg by(execution_id, execution_number) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", scenario_name=~\"$scenario\", name=~\"$metric\"}[$__range]))",
           "format": "table",
           "instant": true,
           "legendFormat": "Avg Score",
@@ -426,7 +426,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count by(execution_id, execution_number) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", scenario_name=~\"$scenario\", result=\"pass\", name=~\"$metric\"}[$__range]))",
+          "expr": "count by(execution_id, execution_number) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", scenario_name=~\"$scenario\", result=\"pass\", name=~\"$metric\"}[$__range]))",
           "format": "table",
           "instant": true,
           "legendFormat": "Passed",
@@ -440,7 +440,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count by(execution_id, execution_number) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", scenario_name=~\"$scenario\", result=\"fail\", name=~\"$metric\"}[$__range]))",
+          "expr": "count by(execution_id, execution_number) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", scenario_name=~\"$scenario\", result=\"fail\", name=~\"$metric\"}[$__range]))",
           "format": "table",
           "instant": true,
           "legendFormat": "Failed",
@@ -511,15 +511,15 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(testbench_evaluation_metric, workflow_name)",
-        "description": "Name of the test workflow",
+        "definition": "label_values(testbench_evaluation_metric, experiment_name)",
+        "description": "Name of the experiment",
         "includeAll": true,
-        "label": "Workflow",
+        "label": "Experiment",
         "name": "workflow",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(testbench_evaluation_metric, workflow_name)",
+          "query": "label_values(testbench_evaluation_metric, experiment_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -537,7 +537,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\"}, name)",
+        "definition": "label_values(testbench_evaluation_metric{experiment_name=~\"$workflow\"}, name)",
         "description": "Metric name filter",
         "includeAll": true,
         "label": "Metric",
@@ -546,7 +546,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\"}, name)",
+          "query": "label_values(testbench_evaluation_metric{experiment_name=~\"$workflow\"}, name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -564,7 +564,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\"}, scenario_name)",
+        "definition": "label_values(testbench_evaluation_metric{experiment_name=~\"$workflow\"}, scenario_name)",
         "description": "Scenario name filter",
         "includeAll": true,
         "label": "Scenario",
@@ -573,7 +573,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\"}, scenario_name)",
+          "query": "label_values(testbench_evaluation_metric{experiment_name=~\"$workflow\"}, scenario_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

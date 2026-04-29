@@ -8,6 +8,12 @@ metadata:
     {{- include "testbench.workflowLabels" . | nindent 4 }}
 
 spec:
+  # Configuration parameters that can be overridden
+  config:
+    experimentName:
+      type: string
+      description: "Name of the experiment for report labeling"
+
   # Steps to execute
   steps:
     - name: visualize-metrics
@@ -18,6 +24,6 @@ spec:
         image: {{ include "testbench.image" . }}
         args:
           - visualize.py
-          - "{{`{{ workflow.name }}`}}"
+          - "{{`{{ config.experimentName }}`}}"
           - "{{`{{ execution.id }}`}}"
           - "{{`{{ execution.number }}`}}"

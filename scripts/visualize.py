@@ -94,13 +94,13 @@ class ReportGenerator:
         self,
         input_path: str,
         output_html_path: str,
-        workflow_name: str,
+        experiment_name: str,
         execution_id: str,
         execution_number: int,
     ) -> None:
         self._input_path = input_path
         self._output_html_path = output_html_path
-        self._workflow_name = workflow_name
+        self._experiment_name = experiment_name
         self._execution_id = execution_id
         self._execution_number = execution_number
 
@@ -224,7 +224,7 @@ class ReportGenerator:
         generate_html_report(
             viz_data,
             self._output_html_path,
-            self._workflow_name,
+            self._experiment_name,
             self._execution_id,
             self._execution_number,
             llm_as_a_judge_model=self._llm_as_a_judge_model,
@@ -1344,7 +1344,7 @@ if (searchInput) {{
 def generate_html_report(
     viz_data: VisualizationData,
     output_file: str,
-    workflow_name: str,
+    experiment_name: str,
     execution_id: str,
     execution_number: int,
     *,
@@ -1356,7 +1356,7 @@ def generate_html_report(
     Args:
         viz_data: VisualizationData container
         output_file: Path to output HTML file
-        workflow_name: Name of the test workflow
+        experiment_name: Name of the experiment
         execution_id: Testkube execution ID for this workflow run
         execution_number: Testkube execution number for this workflow run
         llm_as_a_judge_model: Optional LLM model name used for evaluation
@@ -1369,7 +1369,7 @@ def generate_html_report(
     chart_data = prepare_chart_data(viz_data)
 
     # Generate title from workflow metadata
-    title = f"{workflow_name} - Execution {execution_number} ({execution_id})"
+    title = f"{experiment_name} - Execution {execution_number} ({execution_id})"
 
     # Generate timestamp
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -1398,7 +1398,7 @@ def generate_html_report(
         <h1>{title}</h1>
         <div class="metadata">
             <p class="timestamp">Generated: {timestamp}</p>
-            <p class="workflow-info">Workflow: {workflow_name} | Execution: {execution_number} | ID: {execution_id}</p>
+            <p class="workflow-info">Experiment: {experiment_name} | Execution: {execution_number} | ID: {execution_id}</p>
 {model_info}
         </div>
     </header>
@@ -1432,7 +1432,7 @@ def generate_html_report(
 def main(
     input_file: str,
     output_file: str,
-    workflow_name: str,
+    experiment_name: str,
     execution_id: str,
     execution_number: int,
 ) -> None:
@@ -1442,17 +1442,17 @@ def main(
     Args:
         input_file: Path to evaluated_experiment.json
         output_file: Path to output HTML file
-        workflow_name: Name of the test workflow
+        experiment_name: Name of the experiment
         execution_id: Testkube execution ID for this workflow run
         execution_number: Testkube execution number for this workflow run
     """
     logger.info("Loading evaluation data from %s...", input_file)
-    logger.info("Workflow: %s, Execution: %s", workflow_name, execution_id)
+    logger.info("Experiment: %s, Execution: %s", experiment_name, execution_id)
 
     generator = ReportGenerator(
         input_path=input_file,
         output_html_path=output_file,
-        workflow_name=workflow_name,
+        experiment_name=experiment_name,
         execution_id=execution_id,
         execution_number=execution_number,
     )
@@ -1483,8 +1483,8 @@ Examples:
 
     # Positional required arguments (matching publish.py)
     parser.add_argument(
-        "workflow_name",
-        help="Name of the test workflow (e.g., 'weather-assistant-test')",
+        "experiment_name",
+        help="Name of the experiment (e.g., 'weather-assistant-test')",
     )
     parser.add_argument(
         "execution_id",
@@ -1515,7 +1515,7 @@ Examples:
     main(
         args.input,
         args.output,
-        args.workflow_name,
+        args.experiment_name,
         args.execution_id,
         args.execution_number,
     )

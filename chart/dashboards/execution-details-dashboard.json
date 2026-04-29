@@ -91,7 +91,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count(count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y])))",
+          "expr": "count(count by(scenario_name) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y])))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -170,7 +170,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "100 * count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"pass\"}[1y])) / count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y]))",
+          "expr": "100 * count(last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"pass\"}[1y])) / count(last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y]))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -248,7 +248,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "avg(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y]))",
+          "expr": "avg(last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y]))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -319,7 +319,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"fail\"}[1y])) or vector(0)",
+          "expr": "count(last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"fail\"}[1y])) or vector(0)",
           "format": "table",
           "instant": true,
           "range": false,
@@ -386,7 +386,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count(last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y]))",
+          "expr": "count(last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y]))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -453,7 +453,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "count(count by(name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y])))",
+          "expr": "count(count by(name) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y])))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -540,7 +540,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "100 * (count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"pass\"}[1y])) or (0 * count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y])))) / count by(scenario_name) (last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y]))",
+          "expr": "100 * (count by(scenario_name) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"pass\"}[1y])) or (0 * count by(scenario_name) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y])))) / count by(scenario_name) (last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y]))",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{scenario_name}}",
@@ -692,7 +692,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"fail\"}[1y])",
+          "expr": "last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\", result=\"fail\"}[1y])",
           "format": "table",
           "instant": true,
           "range": false,
@@ -716,7 +716,7 @@
               "scenario_id": true,
               "step_id": true,
               "user_input_truncated": true,
-              "workflow_name": true
+              "experiment_name": true
             },
             "indexByName": {
               "Value": 3,
@@ -908,7 +908,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "last_over_time(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y])",
+          "expr": "last_over_time(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\", scenario_name=~\"$scenario\"}[1y])",
           "format": "table",
           "instant": true,
           "range": false,
@@ -931,7 +931,7 @@
               "scenario_id": true,
               "step_id": true,
               "user_input_truncated": true,
-              "workflow_name": true
+              "experiment_name": true
             },
             "indexByName": {
               "Value": 4,
@@ -988,15 +988,15 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(testbench_evaluation_metric, workflow_name)",
-        "description": "Name of the test workflow",
+        "definition": "label_values(testbench_evaluation_metric, experiment_name)",
+        "description": "Name of the experiment",
         "includeAll": true,
-        "label": "Workflow",
+        "label": "Experiment",
         "name": "workflow",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(testbench_evaluation_metric, workflow_name)",
+          "query": "label_values(testbench_evaluation_metric, experiment_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -1013,14 +1013,14 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\"}, execution_id)",
+        "definition": "label_values(testbench_evaluation_metric{experiment_name=~\"$workflow\"}, execution_id)",
         "description": "Execution ID to inspect",
         "label": "Execution",
         "name": "execution_id",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\"}, execution_id)",
+          "query": "label_values(testbench_evaluation_metric{experiment_name=~\"$workflow\"}, execution_id)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -1038,7 +1038,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\"}, scenario_name)",
+        "definition": "label_values(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\"}, scenario_name)",
         "description": "Filter by scenario",
         "includeAll": true,
         "label": "Scenario",
@@ -1047,7 +1047,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(testbench_evaluation_metric{workflow_name=~\"$workflow\", execution_id=~\"$execution_id\"}, scenario_name)",
+          "query": "label_values(testbench_evaluation_metric{experiment_name=~\"$workflow\", execution_id=~\"$execution_id\"}, scenario_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

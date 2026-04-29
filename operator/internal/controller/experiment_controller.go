@@ -420,12 +420,23 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 		map[string]interface{}{
 			"name": "run-template",
 			"config": map[string]interface{}{
-				"agentUrl": agentURL,
+				"agentUrl":       agentURL,
+				"experimentName": experiment.Name,
 			},
 		},
 		evaluateTemplate,
-		map[string]interface{}{"name": "publish-template"},
-		map[string]interface{}{"name": "visualize-template"},
+		map[string]interface{}{
+			"name": "publish-template",
+			"config": map[string]interface{}{
+				"experimentName": experiment.Name,
+			},
+		},
+		map[string]interface{}{
+			"name": "visualize-template",
+			"config": map[string]interface{}{
+				"experimentName": experiment.Name,
+			},
+		},
 	)
 
 	spec := map[string]interface{}{

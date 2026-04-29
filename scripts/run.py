@@ -47,9 +47,9 @@ class A2AExecutor:
     ``Scenario`` → ``ExecutedScenario``.
     """
 
-    def __init__(self, agent_url: str, workflow_name: str, input_path: str, output_path: str) -> None:
+    def __init__(self, agent_url: str, experiment_name: str, input_path: str, output_path: str) -> None:
         self.agent_url = agent_url
-        self.workflow_name = workflow_name
+        self.experiment_name = experiment_name
         self.input_path = input_path
         self.output_path = output_path
 
@@ -78,7 +78,7 @@ class A2AExecutor:
         self._context_id = None
         self._step_index = 0
 
-        scenario_id = _content_hash(f"{self.workflow_name}:{scenario.name}", prefix="scn_")
+        scenario_id = _content_hash(f"{self.experiment_name}:{scenario.name}", prefix="scn_")
         self._current_scenario_id = scenario_id
 
         # Start a scenario span and attach it as the active context so that
@@ -93,7 +93,7 @@ class A2AExecutor:
 
         self._scenario_span.set_attribute("scenario.name", scenario.name)
         self._scenario_span.set_attribute("scenario.id", scenario_id)
-        self._scenario_span.set_attribute("workflow.name", self.workflow_name)
+        self._scenario_span.set_attribute("experiment.name", self.experiment_name)
         self._scenario_span.set_attribute("agent.url", self.agent_url)
         self._scenario_span.set_attribute("scenario.step_count", len(scenario.steps))
 
@@ -159,18 +159,18 @@ class A2AExecutor:
             self._a2a_client = None
             self._http_client = None
 
-        result.id = self.workflow_name
+        result.id = self.experiment_name
         return result
 
 
-async def main(agent_url: str, workflow_name: str, input_path: str) -> None:
+async def main(agent_url: str, experiment_name: str, input_path: str) -> None:
     """Load an experiment, execute it, and write the result."""
     setup_otel()
 
     output_path = "data/experiments/executed_experiment.json"
     executor = A2AExecutor(
         agent_url=agent_url,
-        workflow_name=workflow_name,
+        experiment_name=experiment_name,
         input_path=input_path,
         output_path=output_path,
     )
@@ -182,10 +182,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Execute an experiment against an A2A agent")
     parser.add_argument("url", help="A2A agent URL")
     parser.add_argument(
-        "workflow_name",
+        "experiment_name",
         nargs="?",
         default="local-test",
-        help="Workflow name for OTel labeling (default: local-test)",
+        help="Experiment name for OTel labeling (default: local-test)",
     )
     parser.add_argument(
         "--input",
@@ -194,4 +194,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    asyncio.run(main(args.url, args.workflow_name, args.input))
+    asyncio.run(main(args.url, args.experiment_name, args.input))

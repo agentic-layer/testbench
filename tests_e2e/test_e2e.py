@@ -13,7 +13,7 @@ Usage:
     E2E_S3_KEY="dataset.csv" \
     E2E_AGENT_URL="http://localhost:8000" \
     E2E_MODEL="gemini-flash-latest" \
-    E2E_WORKFLOW_NAME="weather-assistant-test" \
+    E2E_EXPERIMENT_NAME="weather-assistant-test" \
     pytest tests_e2e/test_e2e.py
 """
 
@@ -37,14 +37,14 @@ class E2ETestRunner:
         s3_key: str,
         agent_url: str,
         model: str,
-        workflow_name: str,
+        experiment_name: str,
         otlp_endpoint: str = "localhost:4318",
     ):
         self.s3_bucket = s3_bucket
         self.s3_key = s3_key
         self.agent_url = agent_url
         self.model = model
-        self.workflow_name = workflow_name
+        self.experiment_name = experiment_name
         self.otlp_endpoint = otlp_endpoint
 
         # Define script paths
@@ -147,7 +147,7 @@ class E2ETestRunner:
 
     def run_agent_queries(self) -> bool:
         """Run run.py to execute agent queries on the dataset."""
-        command = ["python3", str(self.run_script), self.agent_url, self.workflow_name]
+        command = ["python3", str(self.run_script), self.agent_url, self.experiment_name]
         success = self.run_command(command, "2. Run - Execute Agent Queries")
 
         if success:
@@ -171,7 +171,7 @@ class E2ETestRunner:
         command = [
             "python3",
             str(self.publish_script),
-            self.workflow_name,
+            self.experiment_name,
             "e2e-test-exec",  # execution_id
             "1",  # execution_number
         ]
@@ -210,7 +210,7 @@ class E2ETestRunner:
         logger.info(f"  Executed experiment: {self.executed_file}")
         logger.info(f"  Evaluated experiment: {self.evaluated_file}")
         logger.info(f"  Metrics published to: {self.otlp_endpoint}")
-        logger.info(f"  Workflow name: {self.workflow_name}")
+        logger.info(f"  Experiment name: {self.experiment_name}")
 
         return True
 
@@ -224,7 +224,7 @@ def test_e2e_pipeline():
     - E2E_S3_KEY
     - E2E_AGENT_URL
     - E2E_MODEL
-    - E2E_WORKFLOW_NAME
+    - E2E_EXPERIMENT_NAME
     - E2E_OTLP_ENDPOINT
 
     Example:
@@ -235,7 +235,7 @@ def test_e2e_pipeline():
     s3_key = os.getenv("E2E_S3_KEY", "dataset.csv")
     agent_url = os.getenv("E2E_AGENT_URL", "http://localhost:11010")
     model = os.getenv("E2E_MODEL", "gemini-2.5-flash-lite")
-    workflow_name = os.getenv("E2E_WORKFLOW_NAME", "Test Workflow")
+    experiment_name = os.getenv("E2E_EXPERIMENT_NAME", "Test Experiment")
     otlp_endpoint = os.getenv("E2E_OTLP_ENDPOINT", "localhost:4318")
 
     runner = E2ETestRunner(
@@ -243,7 +243,7 @@ def test_e2e_pipeline():
         s3_key=s3_key,
         agent_url=agent_url,
         model=model,
-        workflow_name=workflow_name,
+        experiment_name=experiment_name,
         otlp_endpoint=otlp_endpoint,
     )
 

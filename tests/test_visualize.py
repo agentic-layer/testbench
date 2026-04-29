@@ -488,7 +488,7 @@ def test_html_displays_workflow_info_section(evaluated_experiment_file, tmp_path
     assert 'class="workflow-info"' in html_content
 
     # Check all parts of workflow info are present
-    assert "Workflow: weather-agent" in html_content
+    assert "Experiment: weather-agent" in html_content
     assert "Execution: 7" in html_content
     assert "ID: exec-w123" in html_content
 

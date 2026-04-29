@@ -13,6 +13,9 @@ spec:
     agentUrl:
       type: string
       description: "URL to the agent endpoint (A2A protocol)"
+    experimentName:
+      type: string
+      description: "Name of the experiment for OTel labeling"
 
   # Steps to execute
   steps:
@@ -25,4 +28,4 @@ spec:
         args:
           - run.py
           - "{{`{{ config.agentUrl }}`}}"
-          - "{{`{{ workflow.name }}`}}"
+          - "{{`{{ config.experimentName }}`}}"

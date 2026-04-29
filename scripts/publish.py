@@ -62,12 +62,12 @@ class MetricsPublisher:
     def __init__(
         self,
         input_path: str,
-        workflow_name: str,
+        experiment_name: str,
         execution_id: str,
         execution_number: int,
     ) -> None:
         self._input_path = input_path
-        self._workflow_name = workflow_name
+        self._experiment_name = experiment_name
         self._execution_id = execution_id
         self._execution_number = execution_number
 
@@ -100,7 +100,7 @@ class MetricsPublisher:
 
         exporter = OTLPMetricExporter(endpoint=f"{otlp_endpoint}/v1/metrics")
         reader = PeriodicExportingMetricReader(exporter=exporter, export_interval_millis=3600000)
-        resource = Resource.create({"service.name": "testbench", "workflow.name": self._workflow_name})
+        resource = Resource.create({"service.name": "testbench", "experiment.name": self._experiment_name})
         self._provider = MeterProvider(resource=resource, metric_readers=[reader])
         metrics.set_meter_provider(self._provider)
         meter = metrics.get_meter("testbench", "1.0.0")
@@ -143,7 +143,7 @@ class MetricsPublisher:
 
                 attributes = {
                     "name": metric_name,
-                    "workflow_name": self._workflow_name,
+                    "experiment_name": self._experiment_name,
                     "execution_id": self._execution_id,
                     "execution_number": self._execution_number,
                     "experiment_id": self._current_experiment_id,
@@ -200,7 +200,7 @@ class MetricsPublisher:
         return await runtime.run()
 
 
-def publish_metrics(input_file: str, workflow_name: str, execution_id: str, execution_number: int) -> None:
+def publish_metrics(input_file: str, experiment_name: str, execution_id: str, execution_number: int) -> None:
     """Publish evaluation metrics via OpenTelemetry OTLP.
 
     The OTLP endpoint is read from the ``OTEL_EXPORTER_OTLP_ENDPOINT`` environment
@@ -208,7 +208,7 @@ def publish_metrics(input_file: str, workflow_name: str, execution_id: str, exec
 
     Args:
         input_file: Path to the evaluated experiment JSON file.
-        workflow_name: Name of the test workflow (e.g., 'weather-assistant-test').
+        experiment_name: Name of the experiment (e.g., 'weather-assistant-test').
         execution_id: Testkube execution ID for this workflow run.
         execution_number: Number of the execution for the current workflow (e.g. 3).
     """
@@ -216,7 +216,7 @@ def publish_metrics(input_file: str, workflow_name: str, execution_id: str, exec
 
     publisher = MetricsPublisher(
         input_path=input_file,
-        workflow_name=workflow_name,
+        experiment_name=experiment_name,
         execution_id=execution_id,
         execution_number=execution_number,
     )
@@ -226,8 +226,8 @@ def publish_metrics(input_file: str, workflow_name: str, execution_id: str, exec
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Publish evaluation metrics via OpenTelemetry OTLP")
     parser.add_argument(
-        "workflow_name",
-        help="Name of the test workflow (e.g., 'weather-assistant-test')",
+        "experiment_name",
+        help="Name of the experiment (e.g., 'weather-assistant-test')",
     )
     parser.add_argument(
         "execution_id",
@@ -247,7 +247,7 @@ if __name__ == "__main__":
 
     publish_metrics(
         input_file=args.input,
-        workflow_name=args.workflow_name,
+        experiment_name=args.experiment_name,
         execution_id=args.execution_id,
         execution_number=args.execution_number,
     )

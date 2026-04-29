@@ -285,7 +285,7 @@ async def test_sets_per_step_gauge_values(tmp_path, monkeypatch):
 
     # First step: short question
     assert set_calls[0]["value"] == 0.85
-    assert set_calls[0]["attributes"]["workflow_name"] == "test-workflow"
+    assert set_calls[0]["attributes"]["experiment_name"] == "test-workflow"
     assert set_calls[0]["attributes"]["execution_id"] == "exec-123"
     assert set_calls[0]["attributes"]["execution_number"] == 42
     assert set_calls[0]["attributes"]["experiment_id"] == "exp_test123"
@@ -409,7 +409,7 @@ def test_publish_metrics_calls_publisher(tmp_path, monkeypatch):
     publish_metrics(str(file_path), "test-workflow", "exec-123", 42)
 
     assert len(set_calls) == 1
-    assert set_calls[0]["attributes"]["workflow_name"] == "test-workflow"
+    assert set_calls[0]["attributes"]["experiment_name"] == "test-workflow"
     assert set_calls[0]["attributes"]["execution_id"] == "exec-123"
     assert set_calls[0]["attributes"]["execution_number"] == 42
 

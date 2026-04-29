@@ -64,7 +64,7 @@ uv run python3 testbench/run.py "http://localhost:11010" "my-workflow"
 uv run python3 testbench/evaluate.py --model gemini-2.5-flash-lite
 
 # Phase 4: Publish metrics to OTLP endpoint
-OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" uv run python3 testbench/publish.py "workflow-name" "exec-001" 1
+OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" uv run python3 testbench/publish.py "experiment-name" "exec-001" 1
 
 # Optional: Generate HTML visualization report
 uv run python3 testbench/visualize.py "weather-assistant-test" "exec-001" 1
@@ -85,7 +85,7 @@ uv run python3 testbench/visualize.py weather-assistant-test exec-001 1 \
 ```
 
 **Required Arguments:**
-- `workflow_name` - Name of the test workflow (e.g., 'weather-assistant-test')
+- `experiment_name` - Name of the test experiment (e.g., 'weather-assistant-test')
 - `execution_id` - Testkube execution ID for this workflow run
 - `execution_number` - Testkube execution number for this workflow run
 
@@ -144,7 +144,7 @@ make run
 - **Purpose**: Downloads external dataset, maps rows to `Step` objects with `input`, `reference`, and `custom_values` fields
 
 **Phase 2: Run** (`testbench/run.py`)
-- **Input**: `data/datasets/experiment.json` + Agent URL + workflow name
+- **Input**: `data/datasets/experiment.json` + Agent URL + experiment name
 - **Output**: `data/experiments/executed_experiment.json` (ExecutedExperiment model)
 - **Purpose**: Sends queries to agent via A2A protocol using `A2AStepClient`, records agent responses as `Turn` objects
 - **Pattern**: Uses `ExperimentRuntime` with hooks (`before_scenario`, `on_step`, `after_scenario`)
@@ -158,7 +158,7 @@ make run
 - **Metrics**: Configured via `Metric` objects on each step; uses `GenericMetricsRegistry` with RAGAS adapter
 
 **Phase 4: Publish** (`testbench/publish.py`)
-- **Input**: `data/experiments/evaluated_experiment.json` + workflow name + execution ID + execution number
+- **Input**: `data/experiments/evaluated_experiment.json` + experiment name + execution ID + execution number
 - **Output**: Metrics published to OTLP endpoint (configured via `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable)
 - **Purpose**: Sends per-step evaluation scores to observability backend (LGTM/Grafana) via OpenTelemetry
 
@@ -248,7 +248,7 @@ Experiment(llm_as_a_judge_model, default_threshold, scenarios)
 - **Purpose**: Standard protocol for publishing observability data
 - **Transport**: HTTP/protobuf to OTLP collector endpoint (port 4318)
 - **Metrics Published**: Per-step evaluation gauge with metric name, score, and step/scenario attributes
-- **Labeling**: Each metric labeled with `workflow_name` for filtering in Grafana
+- **Labeling**: Each metric labeled with `experiment_name` for filtering in Grafana
 
 ### Tilt (Local Development)
 - **Purpose**: Local Kubernetes development environment
@@ -284,7 +284,7 @@ All scripts follow same pattern: parse arguments → read input file(s) → proc
 - **`publish.py`**: OTLP metric publishing
   - Reads `EvaluatedExperiment`, iterates `scenarios → steps → evaluations`
   - Creates gauge metrics per evaluation with step/scenario attributes
-  - Uses workflow name as metric label
+  - Uses experiment name as metric label
 
 - **`visualize.py`**: HTML visualization generation
   - Reads `EvaluatedExperiment` and generates self-contained HTML dashboard

@@ -8,6 +8,12 @@ metadata:
     {{- include "testbench.workflowLabels" . | nindent 4 }}
 
 spec:
+  # Configuration parameters that can be overridden
+  config:
+    experimentName:
+      type: string
+      description: "Name of the experiment for metric labeling"
+
   # Steps to execute
   steps:
     - name: publish-metrics
@@ -15,6 +21,6 @@ spec:
         image: {{ include "testbench.image" . }}
         args:
           - publish.py
-          - "{{`{{ workflow.name }}`}}"
+          - "{{`{{ config.experimentName }}`}}"
           - "{{`{{ execution.id }}`}}"
           - "{{`{{ execution.number }}`}}"
