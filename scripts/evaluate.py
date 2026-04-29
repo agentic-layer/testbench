@@ -87,8 +87,6 @@ class MetricEvaluator:
         for metric in metrics:
             try:
                 params = metric.parameters or {}
-                available = self._registry.list_metrics()
-                logger.info("  Available metrics: %s", available)
                 callable_ = self._registry.get_metric_callable("ragas", metric.metric_name, params, self._model)
                 result: MetricResult = await callable_(step)
                 score = result.score
