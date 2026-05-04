@@ -9,9 +9,13 @@ metadata:
 spec:
   # Configuration parameters that can be overridden
   config:
-    openApiBasePath:
+    openAiBasePath:
       type: string
       description: "Base path for OpenAI API"
+      default: ""
+    openAiApiKey:
+      type: string
+      description: "API Key for OpenAI API"
       default: ""
 
   # Steps to execute
@@ -26,4 +30,6 @@ spec:
           - evaluate.py
         env:
           - name: OPENAI_BASE_URL
-            value: "{{`{{ config.openApiBasePath }}`}}"
+            value: "{{`{{ config.openAiBasePath }}`}}"
+          - name: OPENAI_API_KEY
+            value: "{{`{{ config.openAiApiKey }}`}}"

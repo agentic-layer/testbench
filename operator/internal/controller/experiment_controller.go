@@ -412,7 +412,8 @@ func (r *ExperimentReconciler) buildTestWorkflow(experiment *testbenchv1alpha1.E
 	evaluateTemplate := map[string]interface{}{"name": "evaluate-template"}
 	if aiGateway != nil {
 		evaluateTemplate["config"] = map[string]interface{}{
-			"openApiBasePath": buildAiGatewayServiceUrl(*aiGateway),
+			"openAiBasePath": buildAiGatewayServiceUrl(*aiGateway),
+			"openAiApiKey":   "testbench",
 		}
 	}
 
