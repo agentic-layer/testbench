@@ -1,4 +1,3 @@
-import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -27,7 +26,11 @@ class TestRunPipeline:
     @patch("pipeline.evaluate_main", new_callable=AsyncMock)
     @patch("pipeline.run_main", new_callable=AsyncMock)
     @patch("pipeline.setup_phase")
-    def test_runs_all_phases_without_otlp(self, mock_setup, mock_run, mock_evaluate, mock_visualize, config_file):
+    def test_runs_all_phases_without_otlp(
+        self, mock_setup, mock_run, mock_evaluate, mock_visualize, monkeypatch, config_file
+    ):
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+
         run_pipeline(config_file)
 
         mock_setup.assert_called_once()
@@ -40,19 +43,12 @@ class TestRunPipeline:
     @patch("pipeline.evaluate_main", new_callable=AsyncMock)
     @patch("pipeline.run_main", new_callable=AsyncMock)
     @patch("pipeline.setup_phase")
-    def test_runs_publish_when_otlp_configured(
-        self, mock_setup, mock_run, mock_evaluate, mock_visualize, mock_publish, tmp_path
+    def test_runs_publish_when_otlp_env_set(
+        self, mock_setup, mock_run, mock_evaluate, mock_visualize, mock_publish, monkeypatch, config_file
     ):
-        config_dict = {
-            "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
-            "agent": {"url": "https://my-agent.example.com"},
-            "otlp": {"endpoint": "https://otlp.example.com"},
-            "experiment": {"name": "test-workflow"},
-        }
-        config_path = tmp_path / "config.yaml"
-        config_path.write_text(yaml.dump(config_dict))
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otlp.example.com")
 
-        run_pipeline(str(config_path))
+        run_pipeline(config_file)
 
         mock_publish.assert_called_once()
 
@@ -60,7 +56,11 @@ class TestRunPipeline:
     @patch("pipeline.evaluate_main", new_callable=AsyncMock)
     @patch("pipeline.run_main", new_callable=AsyncMock)
     @patch("pipeline.setup_phase")
-    def test_skips_publish_when_no_otlp(self, mock_setup, mock_run, mock_evaluate, mock_visualize, config_file):
+    def test_skips_publish_when_no_otlp(
+        self, mock_setup, mock_run, mock_evaluate, mock_visualize, monkeypatch, config_file
+    ):
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+
         with patch("pipeline.publish_metrics") as mock_publish:
             run_pipeline(config_file)
             mock_publish.assert_not_called()
@@ -71,25 +71,6 @@ class TestRunPipeline:
 
         with pytest.raises(SystemExit):
             run_pipeline(str(config_path))
-
-    @patch("pipeline.visualize_main")
-    @patch("pipeline.evaluate_main", new_callable=AsyncMock)
-    @patch("pipeline.run_main", new_callable=AsyncMock)
-    @patch("pipeline.setup_phase")
-    def test_sets_otlp_env_var_when_configured(self, mock_setup, mock_run, mock_evaluate, mock_visualize, tmp_path):
-        config_dict = {
-            "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
-            "agent": {"url": "https://my-agent.example.com"},
-            "otlp": {"endpoint": "https://otlp.example.com"},
-            "experiment": {"name": "test-workflow"},
-        }
-        config_path = tmp_path / "config.yaml"
-        config_path.write_text(yaml.dump(config_dict))
-
-        with patch("pipeline.publish_metrics"):
-            run_pipeline(str(config_path))
-
-        assert os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") == "https://otlp.example.com"
 
     @patch("pipeline.visualize_main")
     @patch("pipeline.evaluate_main", new_callable=AsyncMock)

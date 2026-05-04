@@ -15,7 +15,6 @@ class TestPipelineConfigUrlSource:
         assert config.dataset.url == "https://example.com/dataset.csv"
         assert config.agent.url == "https://my-agent.example.com"
         assert config.evaluate.model is None
-        assert config.otlp is None
         assert config.experiment.name == "test-experiment"
 
     def test_url_source_missing_url_field(self):
@@ -87,17 +86,6 @@ class TestPipelineConfigOptionalFields:
         }
         config = PipelineConfig.model_validate(config_dict)
         assert config.evaluate.model == "gemini-2.5-flash-lite"
-
-    def test_with_otlp_endpoint(self):
-        config_dict = {
-            "dataset": {"source": "url", "url": "https://example.com/dataset.csv"},
-            "agent": {"url": "https://my-agent.example.com"},
-            "otlp": {"endpoint": "https://otlp.grafana.net/otlp"},
-            "experiment": {"name": "test-experiment"},
-        }
-        config = PipelineConfig.model_validate(config_dict)
-        assert config.otlp is not None
-        assert config.otlp.endpoint == "https://otlp.grafana.net/otlp"
 
     def test_execution_id_defaults_to_auto(self):
         config_dict = {

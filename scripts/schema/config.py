@@ -45,12 +45,6 @@ class EvaluateConfig(BaseModel):
     model: str | None = None
 
 
-class OtlpConfig(BaseModel):
-    """OpenTelemetry endpoint configuration."""
-
-    endpoint: str
-
-
 class ExperimentConfig(BaseModel):
     """Experiment metadata configuration."""
 
@@ -70,6 +64,5 @@ class PipelineConfig(BaseModel):
     dataset: DatasetConfig
     agent: AgentConfig
     evaluate: EvaluateConfig = EvaluateConfig()
-    otlp: OtlpConfig | None = None
     experiment: ExperimentConfig
     workflow: WorkflowConfig = WorkflowConfig()

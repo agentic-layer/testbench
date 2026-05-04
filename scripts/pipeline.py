@@ -104,12 +104,12 @@ def run_pipeline(config_path: str) -> None:
         execution_number,
     )
 
-    # Set OTLP endpoint if configured (used by run.py for tracing)
-    if config.otlp:
-        os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = config.otlp.endpoint
-        logger.info("[pipeline] OTLP endpoint: %s", config.otlp.endpoint)
+    # OTLP endpoint is read from OTEL_EXPORTER_OTLP_ENDPOINT env var (used by run.py for tracing)
+    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if otlp_endpoint:
+        logger.info("[pipeline] OTLP endpoint: %s", otlp_endpoint)
     else:
-        logger.info("[pipeline] No OTLP endpoint configured - tracing and publish will be skipped")
+        logger.info("[pipeline] OTEL_EXPORTER_OTLP_ENDPOINT not set - tracing and publish will be skipped")
 
     # Phase 1: Setup
     logger.info("[setup] Starting dataset setup...")
@@ -129,8 +129,8 @@ def run_pipeline(config_path: str) -> None:
     asyncio.run(evaluate_main(EXECUTED_PATH, EVALUATED_PATH, config.evaluate.model))
     logger.info("[evaluate] Completed in %.1fs", time.time() - start)
 
-    # Phase 4: Publish (conditional)
-    if config.otlp:
+    # Phase 4: Publish (conditional on OTEL_EXPORTER_OTLP_ENDPOINT)
+    if otlp_endpoint:
         logger.info("[publish] Starting metrics publishing...")
         start = time.time()
         publish_metrics(EVALUATED_PATH, experiment_name, execution_id, execution_number)
