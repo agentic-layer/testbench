@@ -9,7 +9,7 @@ dataset:
 
   # For local file:
    source: file
-   path: "./data/datasets/experiment.json"
+   path: "./.github/workflows/experiment/experiment.json"
 
   # For S3/MinIO:
   # source: s3
