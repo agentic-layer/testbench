@@ -106,6 +106,7 @@ def load_experiment_from_file(file_path: str) -> Experiment:
     logger.info("Loaded %d bytes", len(content))
     return parse_experiment(content, path.name)
 
+
 def main(bucket: str, key: str) -> None:
     """Download an Experiment from S3, validate it, and save it locally.
 
