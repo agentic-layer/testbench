@@ -70,9 +70,8 @@ def setup_phase(config: PipelineConfig) -> None:
         # Pydantic validator guarantees path is set when source=file/experiment
         experiment = load_experiment_from_file(config.dataset.path)  # type: ignore[arg-type]
     elif source == "s3":
-        # Pydantic validator guarantees bucket, key, endpoint are set when source=s3
-        if config.dataset.endpoint:
-            os.environ.setdefault("MINIO_ENDPOINT", config.dataset.endpoint)
+        # Pydantic validator guarantees bucket and key are set when source=s3
+        # MinIO endpoint is read from MINIO_ENDPOINT env var by setup.create_s3_client
         experiment = load_experiment_from_s3(config.dataset.bucket, config.dataset.key)  # type: ignore[arg-type]
     else:
         raise ValueError(f"Unknown dataset source: {source}")

@@ -15,8 +15,7 @@ dataset:
   # source: s3
   # bucket: "datasets"
   # key: "dataset.csv"
-  # endpoint: "http://minio:9000"
-  # Requires env vars: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+  # Requires env vars: MINIO_ENDPOINT, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
 
   # For pre-built experiment JSON (skips dataset conversion):
   # source: experiment

@@ -55,7 +55,6 @@ class TestPipelineConfigS3Source:
                 "source": "s3",
                 "bucket": "datasets",
                 "key": "dataset.csv",
-                "endpoint": "http://minio:9000",
             },
             "agent": {"url": "https://my-agent.example.com"},
             "experiment": {"name": "test-experiment"},
@@ -64,11 +63,10 @@ class TestPipelineConfigS3Source:
         assert config.dataset.source == "s3"
         assert config.dataset.bucket == "datasets"
         assert config.dataset.key == "dataset.csv"
-        assert config.dataset.endpoint == "http://minio:9000"
 
     def test_s3_source_missing_bucket(self):
         config_dict = {
-            "dataset": {"source": "s3", "key": "dataset.csv", "endpoint": "http://minio:9000"},
+            "dataset": {"source": "s3", "key": "dataset.csv"},
             "agent": {"url": "https://my-agent.example.com"},
             "experiment": {"name": "test-experiment"},
         }

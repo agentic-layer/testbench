@@ -15,7 +15,6 @@ class DatasetConfig(BaseModel):
     path: str | None = None
     bucket: str | None = None
     key: str | None = None
-    endpoint: str | None = None
 
     @model_validator(mode="after")
     def validate_source_fields(self) -> Self:
@@ -27,7 +26,7 @@ class DatasetConfig(BaseModel):
         if self.source == "experiment" and not self.path:
             raise ValueError("'path' field is required when source is 'experiment'")
         if self.source == "s3":
-            missing = [f for f in ("bucket", "key", "endpoint") if not getattr(self, f)]
+            missing = [f for f in ("bucket", "key") if not getattr(self, f)]
             if missing:
                 raise ValueError(f"Fields {missing} are required when source is 's3'")
         return self
