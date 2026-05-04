@@ -1,239 +1,191 @@
-"""
-Unit tests for setup.py
+"""Unit tests for setup.py.
 
-Tests the dataset download, conversion, and Ragas dataset creation functionality.
+Verifies S3 download, format parsing (JSON/YAML), Experiment validation,
+and saving to data/datasets/experiment.json.
 """
 
+import json
 import os
 import shutil
 import tempfile
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
-from setup import custom_convert_csv, dataframe_to_experiment, get_converter, main
+from setup import (
+    EXPERIMENT_OUTPUT_PATH,
+    load_experiment_from_file,
+    load_experiment_from_s3,
+    load_experiment_from_url,
+    main,
+    parse_experiment,
+    save_experiment,
+)
+
+VALID_EXPERIMENT_DICT = {
+    "scenarios": [
+        {
+            "name": "scenario-1",
+            "steps": [
+                {"input": "What is AI?"},
+            ],
+        }
+    ]
+}
 
 
-# Fixtures
 @pytest.fixture
-def temp_dir():
-    """Create a temporary directory for tests"""
+def temp_cwd():
     tmp = tempfile.mkdtemp()
     original_cwd = Path.cwd()
-    yield tmp, original_cwd
-    shutil.rmtree(tmp, ignore_errors=True)
-
-
-# TestCustomConvertCSV tests
-def test_converts_string_to_list():
-    """Test that retrieved_contexts strings are converted to lists"""
-    csv_content = b"user_input,retrieved_contexts,reference\n"
-    csv_content += b'"Question?","Context text","Answer"\n'
-
-    buffer = BytesIO(csv_content)
-    df = custom_convert_csv(buffer)
-
-    assert isinstance(df["retrieved_contexts"].iloc[0], list)
-    assert df["retrieved_contexts"].iloc[0] == ["Context text"]
-
-
-def test_handles_empty_retrieved_contexts():
-    """Test handling of empty retrieved_contexts"""
-    csv_content = b"user_input,retrieved_contexts,reference\n"
-    csv_content += b'"Question?","","Answer"\n'
-
-    buffer = BytesIO(csv_content)
-    df = custom_convert_csv(buffer)
-
-    # Empty string becomes [nan] in pandas, which then becomes []
-    # The function converts non-list values to lists
-    result = df["retrieved_contexts"].iloc[0]
-    # Check that it's a list and handle NaN case
-    assert isinstance(result, list)
-    # If it contains NaN, that's acceptable behavior for empty strings in CSV
-    if result and pd.isna(result[0]):
-        # This is expected - pandas converts empty string to NaN
-        pass
-    else:
-        # Or it should be an empty list
-        assert result == []
-
-
-def test_missing_retrieved_contexts_column():
-    """Test that CSV without retrieved_contexts column works"""
-    csv_content = b"user_input,reference\n"
-    csv_content += b'"Question?","Answer"\n'
-
-    buffer = BytesIO(csv_content)
-    df = custom_convert_csv(buffer)
-
-    assert "retrieved_contexts" not in df.columns
-
-
-# TestGetConverter tests
-def test_unsupported_format():
-    """Test that unsupported formats raise TypeError"""
-    with pytest.raises(TypeError) as exc_info:
-        get_converter("https://example.com/data.xlsx")
-
-    assert "Unsupported filetype" in str(exc_info.value)
-
-
-# TestDataframeToRagasDataset tests
-def test_creates_ragas_dataset_file(temp_dir):
-    """Test that experiment.json is created"""
-
-    tmp, original_cwd = temp_dir
     os.chdir(tmp)
-
     try:
-        df = pd.DataFrame(
-            {
-                "user_input": ["Question 1"],
-                "retrieved_contexts": [["Context 1"]],
-                "reference": ["Answer 1"],
-            }
-        )
-
-        dataframe_to_experiment(df)
-
-        # Check for the file in the datasets subdirectory
-        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
-        assert dataset_file.exists(), f"Dataset file not found at {dataset_file}"
+        yield Path(tmp)
     finally:
         os.chdir(original_cwd)
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
-# TestMain tests
-def test_main_with_csv(temp_dir, monkeypatch):
-    """Test main function with CSV file from S3"""
+class TestParseExperiment:
+    def test_parses_json(self):
+        content = json.dumps(VALID_EXPERIMENT_DICT).encode("utf-8")
+        experiment = parse_experiment(content, "data.json")
+        assert experiment.scenarios[0].name == "scenario-1"
+        assert experiment.scenarios[0].steps[0].input == "What is AI?"
 
-    tmp, original_cwd = temp_dir
-    os.chdir(tmp)
+    def test_yaml_format_rejected(self):
+        with pytest.raises(ValueError, match="Unsupported filetype"):
+            parse_experiment(b"scenarios: []", "data.yaml")
 
-    try:
-        # Mock S3 response
-        csv_content = b"user_input,retrieved_contexts,reference\n"
-        csv_content += b'"Question?","Context text","Answer"\n'
+    def test_csv_format_rejected(self):
+        with pytest.raises(ValueError, match="Unsupported filetype"):
+            parse_experiment(b"input,reference\nfoo,bar", "data.csv")
 
-        class MockS3Client:
-            def get_object(self, Bucket, Key):  # noqa: N803
-                return {"Body": BytesIO(csv_content)}
+    def test_invalid_experiment_raises(self):
+        bad = json.dumps({"scenarios": [{"name": "s1"}]}).encode("utf-8")  # missing steps
+        with pytest.raises(ValueError, match="validation failed"):
+            parse_experiment(bad, "data.json")
 
-        def mock_create_s3_client():
-            return MockS3Client()
-
-        monkeypatch.setattr("setup.create_s3_client", mock_create_s3_client)
-
-        # Run main with bucket and key
-        main("test-bucket", "data.csv")
-
-        # Verify dataset was created in datasets subdirectory
-        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
-        assert dataset_file.exists(), f"Dataset file not found at {dataset_file}"
-    finally:
-        os.chdir(original_cwd)
+    def test_malformed_json_raises(self):
+        with pytest.raises(json.JSONDecodeError):
+            parse_experiment(b"{not json", "data.json")
 
 
-def test_main_with_json(temp_dir, monkeypatch):
-    """Test main function with JSON file from S3"""
+class TestSaveExperiment:
+    def test_writes_default_path(self, temp_cwd):
+        experiment = parse_experiment(json.dumps(VALID_EXPERIMENT_DICT).encode("utf-8"), "x.json")
+        save_experiment(experiment)
+        assert EXPERIMENT_OUTPUT_PATH.exists()
+        saved = json.loads(EXPERIMENT_OUTPUT_PATH.read_text())
+        assert saved["scenarios"][0]["name"] == "scenario-1"
 
-    tmp, original_cwd = temp_dir
-    os.chdir(tmp)
-
-    try:
-        # Mock S3 response
-        json_content = b"""[
-            {
-                "user_input": "Question?",
-                "retrieved_contexts": ["Context text"],
-                "reference": "Answer"
-            }
-        ]"""
-
-        class MockS3Client:
-            def get_object(self, Bucket, Key):  # noqa: N803
-                return {"Body": BytesIO(json_content)}
-
-        def mock_create_s3_client():
-            return MockS3Client()
-
-        monkeypatch.setattr("setup.create_s3_client", mock_create_s3_client)
-
-        # Run main with bucket and key
-        main("test-bucket", "data.json")
-
-        # Verify dataset was created in datasets subdirectory
-        dataset_file = Path(tmp) / "data" / "datasets" / "experiment.json"
-        assert dataset_file.exists(), f"Dataset file not found at {dataset_file}"
-    finally:
-        os.chdir(original_cwd)
+    def test_writes_custom_path(self, temp_cwd):
+        experiment = parse_experiment(json.dumps(VALID_EXPERIMENT_DICT).encode("utf-8"), "x.json")
+        out = temp_cwd / "custom" / "out.json"
+        save_experiment(experiment, out)
+        assert out.exists()
 
 
-def test_main_with_invalid_s3_key(temp_dir, monkeypatch):
-    """Test main function with invalid S3 key (S3 error)"""
-
-    tmp, original_cwd = temp_dir
-    os.chdir(tmp)
-
-    try:
-        # Mock S3 error
-        class MockS3Client:
-            def get_object(self, Bucket, Key):  # noqa: N803
-                raise Exception("NoSuchKey: The specified key does not exist")
-
-        def mock_create_s3_client():
-            return MockS3Client()
-
-        monkeypatch.setattr("setup.create_s3_client", mock_create_s3_client)
-
-        # Verify that the error propagates
-        with pytest.raises(Exception, match="NoSuchKey"):
-            main("test-bucket", "nonexistent.csv")
-    finally:
-        os.chdir(original_cwd)
-
-
-from unittest.mock import MagicMock, patch  # noqa: E402
-
-from setup import load_dataframe_from_file, load_dataframe_from_url  # noqa: E402
-
-
-class TestLoadDataframeFromUrl:
-    def test_download_csv_from_url(self):
-        csv_content = b"user_input,reference\nWhat is AI?,Artificial Intelligence"
+class TestLoadExperimentFromUrl:
+    def test_downloads_and_parses_json(self):
+        content = json.dumps(VALID_EXPERIMENT_DICT).encode("utf-8")
         mock_response = MagicMock()
-        mock_response.read.return_value = csv_content
+        mock_response.read.return_value = content
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch("setup.urllib.request.urlopen", return_value=mock_response):
-            df = load_dataframe_from_url("https://example.com/dataset.csv")
-            assert len(df) == 1
-            assert df.iloc[0]["user_input"] == "What is AI?"
+            experiment = load_experiment_from_url("https://example.com/exp.json")
+            assert experiment.scenarios[0].name == "scenario-1"
+
+    def test_strips_query_string_for_suffix(self):
+        content = json.dumps(VALID_EXPERIMENT_DICT).encode("utf-8")
+        mock_response = MagicMock()
+        mock_response.read.return_value = content
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("setup.urllib.request.urlopen", return_value=mock_response):
+            experiment = load_experiment_from_url("https://example.com/exp.json?token=abc")
+            assert experiment.scenarios[0].steps[0].input == "What is AI?"
 
 
-class TestLoadDataframeFromFile:
-    def test_load_csv_from_local_file(self, tmp_path):
-        csv_file = tmp_path / "dataset.csv"
-        csv_file.write_text("user_input,reference\nWhat is AI?,Artificial Intelligence")
+class TestLoadExperimentFromFile:
+    def test_load_json(self, tmp_path):
+        path = tmp_path / "exp.json"
+        path.write_text(json.dumps(VALID_EXPERIMENT_DICT))
+        experiment = load_experiment_from_file(str(path))
+        assert experiment.scenarios[0].name == "scenario-1"
 
-        df = load_dataframe_from_file(str(csv_file))
-        assert len(df) == 1
-        assert df.iloc[0]["user_input"] == "What is AI?"
+    def test_unsupported_raises(self, tmp_path):
+        path = tmp_path / "exp.csv"
+        path.write_text("foo,bar")
+        with pytest.raises(ValueError, match="Unsupported"):
+            load_experiment_from_file(str(path))
 
-    def test_load_json_from_local_file(self, tmp_path):
-        json_file = tmp_path / "dataset.json"
-        json_file.write_text('[{"user_input": "What is AI?", "reference": "Artificial Intelligence"}]')
 
-        df = load_dataframe_from_file(str(json_file))
-        assert len(df) == 1
-        assert df.iloc[0]["user_input"] == "What is AI?"
+class TestLoadExperimentFromS3:
+    def test_downloads_and_parses(self, monkeypatch):
+        content = json.dumps(VALID_EXPERIMENT_DICT).encode("utf-8")
 
-    def test_unsupported_file_format(self, tmp_path):
-        txt_file = tmp_path / "dataset.txt"
-        txt_file.write_text("some data")
+        class MockS3Client:
+            def get_object(self, Bucket, Key):  # noqa: N803
+                return {"Body": BytesIO(content)}
 
-        with pytest.raises(TypeError, match="Unsupported"):
-            load_dataframe_from_file(str(txt_file))
+        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        experiment = load_experiment_from_s3("bucket", "exp.json")
+        assert experiment.scenarios[0].name == "scenario-1"
+
+    def test_propagates_s3_error(self, monkeypatch):
+        class MockS3Client:
+            def get_object(self, Bucket, Key):  # noqa: N803
+                raise Exception("NoSuchKey")
+
+        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        with pytest.raises(Exception, match="NoSuchKey"):
+            load_experiment_from_s3("bucket", "missing.json")
+
+
+class TestMain:
+    def test_main_with_json_from_s3(self, temp_cwd, monkeypatch):
+        content = json.dumps(VALID_EXPERIMENT_DICT).encode("utf-8")
+
+        class MockS3Client:
+            def get_object(self, Bucket, Key):  # noqa: N803
+                return {"Body": BytesIO(content)}
+
+        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        main("test-bucket", "data.json")
+        assert EXPERIMENT_OUTPUT_PATH.exists()
+        saved = json.loads(EXPERIMENT_OUTPUT_PATH.read_text())
+        assert saved["scenarios"][0]["name"] == "scenario-1"
+
+    def test_main_with_invalid_s3_key(self, temp_cwd, monkeypatch):
+        class MockS3Client:
+            def get_object(self, Bucket, Key):  # noqa: N803
+                raise Exception("NoSuchKey: The specified key does not exist")
+
+        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        with pytest.raises(Exception, match="NoSuchKey"):
+            main("test-bucket", "nonexistent.json")
+
+    def test_main_rejects_unsupported_format(self, temp_cwd, monkeypatch):
+        class MockS3Client:
+            def get_object(self, Bucket, Key):  # noqa: N803
+                return {"Body": BytesIO(b"foo,bar")}
+
+        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        with pytest.raises(ValueError, match="Unsupported"):
+            main("test-bucket", "data.csv")
+
+    def test_main_rejects_invalid_experiment(self, temp_cwd, monkeypatch):
+        bad = json.dumps({"scenarios": [{"name": "s1"}]}).encode("utf-8")  # missing steps
+
+        class MockS3Client:
+            def get_object(self, Bucket, Key):  # noqa: N803
+                return {"Body": BytesIO(bad)}
+
+        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        with pytest.raises(ValueError, match="validation failed"):
+            main("test-bucket", "data.json")

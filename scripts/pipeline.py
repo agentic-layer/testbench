@@ -14,7 +14,6 @@ import argparse
 import asyncio
 import logging
 import os
-import shutil
 import sys
 import time
 import uuid
@@ -24,8 +23,12 @@ from evaluate import main as evaluate_main
 from publish import publish_metrics
 from run import main as run_main
 from schema.config import PipelineConfig
-from setup import dataframe_to_experiment, load_dataframe_from_file, load_dataframe_from_url
-from setup import main as setup_s3_main
+from setup import (
+    load_experiment_from_file,
+    load_experiment_from_s3,
+    load_experiment_from_url,
+    save_experiment,
+)
 from visualize import main as visualize_main
 
 logging.basicConfig(level=logging.INFO)
@@ -57,30 +60,24 @@ def _resolve_execution_number(execution_number: int) -> int:
 
 
 def setup_phase(config: PipelineConfig) -> None:
-    """Phase 1: Resolve dataset and convert to Experiment JSON."""
+    """Phase 1: Load Experiment YAML/JSON from the configured source, validate, and save."""
     source = config.dataset.source
 
     if source == "url":
         # Pydantic validator guarantees url is set when source=url
-        df = load_dataframe_from_url(config.dataset.url)  # type: ignore[arg-type]
-        dataframe_to_experiment(df)
-    elif source == "file":
-        # Pydantic validator guarantees path is set when source=file
-        df = load_dataframe_from_file(config.dataset.path)  # type: ignore[arg-type]
-        dataframe_to_experiment(df)
-    elif source == "experiment":
-        # Pre-built experiment.json — copy directly to expected path
-        from pathlib import Path
-
-        output_path = Path(EXPERIMENT_PATH)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(config.dataset.path, output_path)  # type: ignore[arg-type]
-        logger.info("[setup] Copied experiment from %s", config.dataset.path)
+        experiment = load_experiment_from_url(config.dataset.url)  # type: ignore[arg-type]
+    elif source in ("file", "experiment"):
+        # Pydantic validator guarantees path is set when source=file/experiment
+        experiment = load_experiment_from_file(config.dataset.path)  # type: ignore[arg-type]
     elif source == "s3":
         # Pydantic validator guarantees bucket, key, endpoint are set when source=s3
         if config.dataset.endpoint:
             os.environ.setdefault("MINIO_ENDPOINT", config.dataset.endpoint)
-        setup_s3_main(config.dataset.bucket, config.dataset.key)  # type: ignore[arg-type]
+        experiment = load_experiment_from_s3(config.dataset.bucket, config.dataset.key)  # type: ignore[arg-type]
+    else:
+        raise ValueError(f"Unknown dataset source: {source}")
+
+    save_experiment(experiment)
 
 
 def run_pipeline(config_path: str) -> None:
