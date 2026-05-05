@@ -113,7 +113,7 @@ jobs:
       - name: Port-forward services
         run: |
           kubectl port-forward -n sample-agents svc/weather-agent 11010:8000 &
-          kubectl port-forward -n ai-gateway svc/ai-gateway-litellm 11001:4000 &
+          kubectl port-forward -n ai-gateway svc/ai-gateway 11001:4000 &
           kubectl port-forward -n monitoring svc/lgtm 4318:4318 &
           sleep 5
 
