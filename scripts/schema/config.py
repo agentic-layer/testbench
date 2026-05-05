@@ -42,6 +42,7 @@ class EvaluateConfig(BaseModel):
     """Evaluation phase configuration."""
 
     model: str | None = None
+    fail_on_metric_failure: bool = True
 
 
 class ExperimentConfig(BaseModel):

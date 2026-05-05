@@ -126,7 +126,7 @@ jobs:
       - name: Install Dependencies
         run: uv sync
 
-      - name: Run Pipeline
+      - name: Run Evaluation Pipeline
         env:
           OPENAI_BASE_URL: "http://localhost:11001"
           OPENAI_API_KEY: "not used"

@@ -23,6 +23,7 @@ from evaluate import main as evaluate_main
 from publish import publish_metrics
 from run import main as run_main
 from schema.config import PipelineConfig
+from schema.models import EvaluatedExperiment
 from setup import (
     load_experiment_from_file,
     load_experiment_from_s3,
@@ -77,6 +78,26 @@ def setup_phase(config: PipelineConfig) -> None:
         raise ValueError(f"Unknown dataset source: {source}")
 
     save_experiment(experiment)
+
+
+def check_evaluations(evaluated_path: str) -> int:
+    """Return the number of failed metric evaluations in the evaluated experiment."""
+    with open(evaluated_path) as f:
+        evaluated = EvaluatedExperiment.model_validate_json(f.read())
+
+    failures: list[str] = []
+    for scenario in evaluated.scenarios:
+        for step_index, step in enumerate(scenario.steps):
+            for evaluation in step.evaluations or []:
+                if evaluation.result.result == "fail":
+                    failures.append(
+                        f"{scenario.name}[{step_index}] metric={evaluation.metric.metric_name} "
+                        f"score={evaluation.result.score}"
+                    )
+
+    for failure in failures:
+        logger.error("[check] FAIL: %s", failure)
+    return len(failures)
 
 
 def run_pipeline(config_path: str) -> None:
@@ -141,8 +162,20 @@ def run_pipeline(config_path: str) -> None:
     visualize_main(EVALUATED_PATH, REPORT_PATH, experiment_name, execution_id, execution_number)
     logger.info("[visualize] Completed in %.1fs", time.time() - start)
 
-    logger.info("[pipeline] Pipeline completed successfully")
     logger.info("[pipeline] Report: %s", REPORT_PATH)
+
+    # Final check: optionally fail the pipeline if any metric evaluation failed
+    failure_count = check_evaluations(EVALUATED_PATH)
+    if failure_count > 0:
+        if config.evaluate.fail_on_metric_failure:
+            logger.error("[pipeline] %d metric evaluation(s) failed", failure_count)
+            sys.exit(1)
+        logger.warning(
+            "[pipeline] %d metric evaluation(s) failed (fail_on_metric_failure=false, continuing)",
+            failure_count,
+        )
+
+    logger.info("[pipeline] Pipeline completed successfully")
 
 
 if __name__ == "__main__":

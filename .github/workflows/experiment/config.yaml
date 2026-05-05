@@ -25,6 +25,12 @@ dataset:
 agent:
   url: "http://localhost:11010"
 
+# Evaluation phase configuration
+evaluate:
+  # When true (default), the pipeline exits non-zero if any metric evaluation fails.
+  # Set to false to always succeed regardless of metric pass/fail results.
+  fail_on_metric_failure: true
+
 # Experiment metadata
 experiment:
   name: "my-evaluation"
