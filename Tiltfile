@@ -53,6 +53,14 @@ k8s_yaml(helm(
     ],
 ))
 
+# Build and deploy the testbench operator (mirrors `make -C operator deploy`)
+docker_build(
+    'ghcr.io/agentic-layer/testbench/operator',
+    'operator',
+    dockerfile='operator/Dockerfile',
+)
+k8s_yaml(kustomize('operator/config/default'))
+
 # Apply local development manifests
 k8s_yaml(kustomize('deploy/local'))
 
@@ -66,10 +74,16 @@ k8s_kind(
     pod_readiness='ignore',
 )
 
+# Declare testbench Experiment resources
+k8s_kind(
+    'Experiment',
+    pod_readiness='ignore',
+)
+
 k8s_resource('evaluate-template', resource_deps=['testkube'])
 k8s_resource('publish-template', resource_deps=['testkube'])
 k8s_resource('run-template', resource_deps=['testkube'])
 k8s_resource('setup-template', resource_deps=['testkube'])
 k8s_resource('visualize-template', resource_deps=['testkube'])
-k8s_resource('example-workflow', resource_deps=['testkube'])
-k8s_resource('example-workflow-trigger', resource_deps=['testkube'])
+k8s_resource('operator-controller-manager', labels=['testbench-operator'])
+k8s_resource('example-experiment', resource_deps=['operator-controller-manager', 'ai-gateway'])

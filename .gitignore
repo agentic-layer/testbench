@@ -30,5 +30,10 @@ go.work
 
 scripts/data/*
 
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
 # oh-my-claudecode state
 .omc

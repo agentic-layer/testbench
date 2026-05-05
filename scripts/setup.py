@@ -1,8 +1,9 @@
-"""Download dataset from S3/MinIO, convert to Experiment JSON, and save.
+"""Download an Experiment JSON file from S3/MinIO, validate it, and save.
 
-Phase 1 of the evaluation pipeline. Downloads a dataset file (CSV, JSON,
-or Parquet) from S3/MinIO and converts it into an ``Experiment`` JSON file
-that subsequent phases can consume.
+Phase 1 of the evaluation pipeline. The source object is expected to already
+be a serialized ``Experiment`` (matching ``schema/experiment.schema.json``)
+in JSON form. The file is validated against the ``Experiment`` Pydantic
+model and written to ``data/datasets/experiment.json``.
 
 Usage::
 
@@ -10,171 +11,125 @@ Usage::
 """
 
 import argparse
+import json
 import logging
 import os
-from io import BytesIO
+import urllib.request
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import boto3
-import pandas as pd
 from botocore.client import Config
-from pandas import DataFrame
-from schema.models import Experiment, Reference, Scenario, Step
+from pydantic import ValidationError
+from schema.models import Experiment
 
-# Set up module-level logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+EXPERIMENT_OUTPUT_PATH = Path("data/datasets/experiment.json")
+SUPPORTED_SUFFIX = ".json"
 
-def dataframe_to_experiment(dataframe: DataFrame) -> None:
-    """Convert DataFrame to Experiment JSON and save to data/datasets/experiment.json.
 
-    Expected schema:
-    - user_input: The test question/prompt
-    - retrieved_contexts: List of retrieved context strings (optional)
-    - reference: The reference/ground truth answer (optional)
+def parse_experiment(content: bytes, key: str) -> Experiment:
+    """Parse and validate experiment JSON content from raw bytes.
+
+    Args:
+        content: Raw file content as bytes.
+        key: File name or S3 key — used to verify format via suffix.
+
+    Returns:
+        A validated ``Experiment`` instance.
+
+    Raises:
+        ValueError: If the file suffix is not ``.json`` or content fails validation.
     """
-    steps: list[Step] = []
+    suffix = Path(key).suffix.lower()
+    if suffix != SUPPORTED_SUFFIX:
+        raise ValueError(f"Unsupported filetype for key: {key}. Must end with {SUPPORTED_SUFFIX}")
 
-    for _, row in dataframe.iterrows():
-        custom_values: dict[str, Any] = {}
+    data: Any = json.loads(content.decode("utf-8"))
 
-        if "retrieved_contexts" in row and row["retrieved_contexts"] is not None:
-            custom_values["retrieved_contexts"] = row["retrieved_contexts"]
+    try:
+        return Experiment.model_validate(data)
+    except ValidationError as e:
+        raise ValueError(f"Experiment validation failed for {key}: {e}") from e
 
-        reference: Reference | None = None
-        if "reference" in row and row["reference"] is not None and str(row["reference"]).strip():
-            reference = Reference(response=str(row["reference"]))
 
-        step = Step(
-            input=str(row["user_input"]),
-            reference=reference,
-            custom_values=custom_values if custom_values else None,
-        )
-        steps.append(step)
-
-    scenario = Scenario(name="dataset", steps=steps)
-    experiment = Experiment(scenarios=[scenario])
-
-    output_path = Path("data/datasets/experiment.json")
+def save_experiment(experiment: Experiment, output_path: Path = EXPERIMENT_OUTPUT_PATH) -> None:
+    """Write a validated ``Experiment`` to ``data/datasets/experiment.json``."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(experiment.model_dump_json(indent=2, exclude_none=True))
 
 
-def get_converter(key: str) -> Callable[[BytesIO], DataFrame]:
-    """Extract the file format from the S3 key suffix and return the converter function."""
-    suffix = Path(key).suffix.lower()
-
-    format_map: dict[str, Callable[[BytesIO], DataFrame]] = {
-        ".json": pd.read_json,
-        ".csv": custom_convert_csv,
-        ".parquet": pd.read_parquet,
-        ".prq": pd.read_parquet,
-    }
-
-    if suffix in format_map:
-        return format_map[suffix]
-
-    raise TypeError(f"Unsupported filetype for key: {key}. Must end with .csv, .json, .parquet, or .prq")
-
-
-def custom_convert_csv(input_file: BytesIO) -> DataFrame:
-    """Convert a CSV input file to a Pandas DataFrame.
-
-    If 'retrieved_contexts' column exists, ensures it is a list of strings
-    (RAGAS requires 'retrieved_contexts' as a list of strings).
-
-    Args:
-        input_file: The CSV input_file
-
-    Returns:
-        Pandas DataFrame with correct formatting
-    """
-    dataframe: DataFrame = pd.read_csv(input_file)
-
-    # Ensure retrieved_contexts is a list (convert string to list if needed)
-    if "retrieved_contexts" in dataframe:
-        dataframe["retrieved_contexts"] = dataframe["retrieved_contexts"].apply(
-            lambda x: x if isinstance(x, list) else [x] if x else []
-        )
-
-    return dataframe
-
-
 def create_s3_client() -> Any:
-    """Create and configure S3 client for MinIO."""
-    # Get MinIO credentials from environment
+    """Create and configure an S3 client targeting MinIO."""
     access_key = os.getenv("MINIO_ROOT_USER", "minio")
     secret_key = os.getenv("MINIO_ROOT_PASSWORD", "minio123")
     endpoint_url = os.getenv("MINIO_ENDPOINT", "http://testkube-minio-service-testkube.testkube:9000")
 
-    logger.info(f"Connecting to MinIO at {endpoint_url}")
+    logger.info("Connecting to MinIO at %s", endpoint_url)
 
-    # Create S3 client with MinIO configuration
-    s3_client = boto3.client(
+    return boto3.client(
         "s3",
         endpoint_url=endpoint_url,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
         config=Config(signature_version="s3v4"),
-        region_name="us-east-1",  # MinIO doesn't care about region, but boto3 requires it
+        region_name="us-east-1",
     )
 
-    return s3_client
+
+def load_experiment_from_s3(bucket: str, key: str) -> Experiment:
+    """Download an experiment JSON file from S3/MinIO and validate it."""
+    s3_client = create_s3_client()
+    logger.info("Downloading from bucket '%s', key '%s'...", bucket, key)
+    response = s3_client.get_object(Bucket=bucket, Key=key)
+    content: bytes = response["Body"].read()
+    logger.info("Downloaded %d bytes", len(content))
+    return parse_experiment(content, key)
+
+
+def load_experiment_from_url(url: str) -> Experiment:
+    """Download an experiment JSON file from an HTTP(S) URL and validate it."""
+    logger.info("Downloading experiment from %s...", url)
+    with urllib.request.urlopen(url) as response:  # noqa: S310  # nosec B310
+        content: bytes = response.read()
+    logger.info("Downloaded %d bytes", len(content))
+    return parse_experiment(content, url.split("?")[0])
+
+
+def load_experiment_from_file(file_path: str) -> Experiment:
+    """Load an experiment JSON file from a local path and validate it."""
+    path = Path(file_path)
+    logger.info("Loading experiment from %s...", file_path)
+    content = path.read_bytes()
+    logger.info("Loaded %d bytes", len(content))
+    return parse_experiment(content, path.name)
 
 
 def main(bucket: str, key: str) -> None:
-    """Download dataset from S3/MinIO -> convert to Experiment JSON -> save.
-
-    Source dataset must contain column: user_input
-    Optional columns: retrieved_contexts, reference
+    """Download an Experiment from S3, validate it, and save it locally.
 
     Args:
-        bucket: S3 bucket name
-        key: S3 object key (path to dataset file)
+        bucket: S3 bucket name.
+        key: S3 object key (path to a JSON Experiment file).
     """
-    converter = get_converter(key)
-
-    # Create S3 client
-    s3_client = create_s3_client()
-
-    # Download file from S3
-    logger.info(f"Downloading from bucket '{bucket}', key '{key}'...")
-    try:
-        response = s3_client.get_object(Bucket=bucket, Key=key)
-        file_content = response["Body"].read()
-        logger.info(f"Downloaded {len(file_content)} bytes")
-    except Exception as e:
-        logger.error(f"Failed to download from S3: {e}")
-        raise
-
-    # Load into DataFrame by using the correct converter
-    logger.info("Converting to DataFrame...")
-    buffer = BytesIO(file_content)
-
-    dataframe = converter(buffer)
-    logger.info(f"Loaded {len(dataframe)} rows")
-
-    # Convert DataFrame to Experiment JSON and save it
-    logger.info("Converting to Experiment JSON...")
-    dataframe_to_experiment(dataframe)
-    logger.info("Dataset saved successfully to data/datasets/experiment.json")
+    experiment = load_experiment_from_s3(bucket, key)
+    save_experiment(experiment)
+    logger.info("Experiment saved to %s", EXPERIMENT_OUTPUT_PATH)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Download dataset from S3/MinIO -> convert to Experiment JSON -> save to data/datasets/experiment.json"
+        description=(
+            "Download an Experiment JSON from S3/MinIO, validate it, and save to data/datasets/experiment.json"
+        )
     )
-    parser.add_argument(
-        "bucket",
-        type=str,
-        help="S3/MinIO bucket name containing the dataset",
-    )
+    parser.add_argument("bucket", type=str, help="S3/MinIO bucket name")
     parser.add_argument(
         "key",
         type=str,
-        help="S3/MinIO object key (path to dataset file in .csv / .json / .parquet format)",
+        help="S3/MinIO object key (path to .json Experiment file)",
     )
     args = parser.parse_args()
 

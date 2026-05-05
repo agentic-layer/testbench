@@ -1,0 +1,34 @@
+# Pipeline Configuration
+# Run with: uv run python3 scripts/pipeline.py config.yaml
+
+# Dataset source — how to acquire the Experiment JSON file
+# All sources require a serialized Experiment JSON (not CSV or Parquet)
+dataset:
+  # source: url | file | s3
+
+  # For local file:
+  source: file
+  path: "./data/datasets/experiment.json"
+
+  # For HTTP(S) URL:
+  # source: url
+  # url: "https://example.com/experiment.json"
+
+  # For S3/MinIO:
+  # source: s3
+  # bucket: "datasets"
+  # key: "experiment.json"
+  # Requires env vars: MINIO_ENDPOINT, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+
+# Agent to evaluate — must expose A2A protocol endpoint
+agent:
+  url: "http://host.docker.internal:11010"
+
+# Experiment metadata
+experiment:
+  name: "my-evaluation"
+
+# Workflow execution metadata
+workflow:
+  execution_id: "auto"    # defaults to $GITHUB_RUN_ID or UUID
+  execution_number: 1     # defaults to $GITHUB_RUN_NUMBER or 1

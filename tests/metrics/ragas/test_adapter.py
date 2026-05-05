@@ -25,8 +25,10 @@ class TestRagasFrameworkAdapter:
         adapter = RagasFrameworkAdapter()
         assert adapter.framework_name == "ragas"
 
-    def test_create_callable_success(self):
+    def test_create_callable_success(self, monkeypatch):
         """Adapter creates callable for valid metric class."""
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
         from metrics.ragas.adapter import RagasFrameworkAdapter
 
         adapter = RagasFrameworkAdapter()

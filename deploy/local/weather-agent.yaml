@@ -13,7 +13,7 @@ metadata:
   namespace: sample-agents
 spec:
   framework: google-adk
-  image: ghcr.io/agentic-layer/weather-agent:0.6.0
+  image: ghcr.io/agentic-layer/weather-agent:0.6.4
   protocols:
     - type: A2A
   exposed: true

@@ -113,6 +113,27 @@ jobs:
       - name: Setup Testkube CLI
         uses: kubeshop/setup-testkube@v1
 
-      - name: Run Test Workflow
+      - name: Port-forward services
         run: |
-          testkube run testworkflow example-workflow --watch
+          kubectl port-forward -n sample-agents svc/weather-agent 11010:8000 &
+          kubectl port-forward -n ai-gateway svc/ai-gateway-litellm 11001:4000 &
+          kubectl port-forward -n monitoring svc/lgtm 4318:4318 &
+          sleep 5
+
+      - name: Run Pipeline
+        run: |
+          docker run --rm \
+            --add-host=host.docker.internal:host-gateway \
+            -v "$PWD":/work -w /work \
+            -e OPENAI_BASE_URL="http://host.docker.internal:11001" \
+            -e OPENAI_API_KEY="not used" \
+            -e OTEL_EXPORTER_OTLP_ENDPOINT="http://host.docker.internal:4318" \
+            ghcr.io/agentic-layer/testbench/testworkflows:latest \
+            scripts/pipeline.py .github/workflows/experiment/config.yaml
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-report
+          path: data/results/evaluation_report.html

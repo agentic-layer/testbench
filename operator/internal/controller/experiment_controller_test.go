@@ -839,7 +839,7 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(err.Error()).To(ContainSubstring("failed to resolve AiGateway"))
 		})
 
-		It("should set openApiBasePath on evaluate-template when AiGateway is resolved", func() {
+		It("should set openAiBasePath on evaluate-template when AiGateway is resolved", func() {
 			r := newReconciler()
 			exp := &testbenchv1alpha1.Experiment{
 				ObjectMeta: metav1.ObjectMeta{Name: "exp-gw-url", Namespace: namespace},
@@ -867,7 +867,7 @@ var _ = Describe("Experiment Controller", func() {
 			}
 			Expect(evalTemplate).NotTo(BeNil())
 			cfg := evalTemplate["config"].(map[string]interface{})
-			Expect(cfg["openApiBasePath"]).To(Equal("http://my-gw.ai-gateway.svc.cluster.local.:4000"))
+			Expect(cfg["openAiBasePath"]).To(Equal("http://my-gw.ai-gateway.svc.cluster.local.:4000"))
 		})
 
 		It("should not set config on evaluate-template when no AiGateway", func() {
