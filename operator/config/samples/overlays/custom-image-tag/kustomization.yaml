@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# When using this overlay against a release artifact, replace the resources entry
+# with the released install.yaml URL, e.g.:
+#
+#   resources:
+#     - https://github.com/agentic-layer/testbench/releases/download/v0.1.0/install.yaml
+#
+# For in-tree development, this references the kustomize source directly.
+resources:
+  - ../../../default
+
+images:
+  - name: ghcr.io/agentic-layer/testbench/testworkflows
+    newTag: my-custom-tag
