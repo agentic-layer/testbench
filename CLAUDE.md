@@ -207,10 +207,11 @@ Experiment(llm_as_a_judge_model, default_threshold, scenarios)
 **Shared State**: All phases mount the same `emptyDir` volume at `/app/data`, enabling stateless containers with persistent data flow between steps.
 
 **Template Files**:
-- `deploy/base/templates/setup-template.yaml` - Phase 1
-- `deploy/base/templates/run-template.yaml` - Phase 2
-- `deploy/base/templates/evaluate-template.yaml` - Phase 3
-- `deploy/base/templates/publish-template.yaml` - Phase 4
+- `operator/config/testworkflows/setup-template.yaml` - Phase 1
+- `operator/config/testworkflows/run-template.yaml` - Phase 2
+- `operator/config/testworkflows/evaluate-template.yaml` - Phase 3
+- `operator/config/testworkflows/publish-template.yaml` - Phase 4
+- `operator/config/testworkflows/visualize-template.yaml` - Optional visualization phase
 - `deploy/local/ragas-evaluation-workflow.yaml` - Combines all templates into complete workflow
 
 **Key Workflow Parameters**:
@@ -319,10 +320,11 @@ All scripts follow same pattern: parse arguments → read input file(s) → proc
 
 ### Deployment Manifests
 
-**Testkube Templates (`deploy/base/templates/`)**:
+**Testkube Templates (`operator/config/testworkflows/`)**:
 - Each template is a `TestWorkflowTemplate` CRD
 - Defines container spec, volume mounts, command arguments
 - Parameterized with `config.*` variables (e.g., `{{ config.datasetUrl }}`)
+- Bundled into the unified `install.yaml` via `make -C operator build-installer`
 
 **Local Development (`deploy/local/`)**:
 - `ragas-evaluation-workflow.yaml` - Complete workflow definition
@@ -404,7 +406,7 @@ If changing intermediate file formats or locations:
 
 **Issue**: Template not found errors
 - **Check templates exist**: `kubectl get testworkflowtemplates -n testkube`
-- **Reinstall templates**: `kubectl apply -f deploy/base/templates/ -n testkube`
+- **Reinstall templates**: `kubectl apply -k operator/config/testworkflows/` (or rebuild & apply `operator/dist/install.yaml`)
 
 ### Tilt Environment Issues
 
