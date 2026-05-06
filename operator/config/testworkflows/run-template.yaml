@@ -1,0 +1,29 @@
+apiVersion: testworkflows.testkube.io/v1
+kind: TestWorkflowTemplate
+metadata:
+  name: run-template
+  namespace: testkube
+  labels:
+    app.kubernetes.io/name: testbench
+    app.kubernetes.io/version: "0.0.1"
+    testkube.io/test-category: ragas-evaluation
+    app: testworkflows
+spec:
+  config:
+    agentUrl:
+      type: string
+      description: "URL to the agent endpoint (A2A protocol)"
+    experimentName:
+      type: string
+      description: "Name of the experiment for OTel labeling"
+  steps:
+    - name: run
+      artifacts:
+        paths:
+          - "data/experiments/executed_experiment.json"
+      run:
+        image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
+        args:
+          - run.py
+          - "{{ config.agentUrl }}"
+          - "{{ config.experimentName }}"

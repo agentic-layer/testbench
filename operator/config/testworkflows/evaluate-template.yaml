@@ -1,0 +1,34 @@
+apiVersion: testworkflows.testkube.io/v1
+kind: TestWorkflowTemplate
+metadata:
+  name: evaluate-template
+  namespace: testkube
+  labels:
+    app.kubernetes.io/name: testbench
+    app.kubernetes.io/version: "0.0.1"
+    testkube.io/test-category: ragas-evaluation
+    app: testworkflows
+spec:
+  config:
+    openAiBasePath:
+      type: string
+      description: "Base path for OpenAI API"
+      default: ""
+    openAiApiKey:
+      type: string
+      description: "API Key for OpenAI API"
+      default: ""
+  steps:
+    - name: evaluate-results
+      artifacts:
+        paths:
+          - "data/experiments/evaluated_experiment.json"
+      run:
+        image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
+        args:
+          - evaluate.py
+        env:
+          - name: OPENAI_BASE_URL
+            value: "{{ config.openAiBasePath }}"
+          - name: OPENAI_API_KEY
+            value: "{{ config.openAiApiKey }}"

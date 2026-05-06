@@ -1,0 +1,27 @@
+apiVersion: testworkflows.testkube.io/v1
+kind: TestWorkflowTemplate
+metadata:
+  name: visualize-template
+  namespace: testkube
+  labels:
+    app.kubernetes.io/name: testbench
+    app.kubernetes.io/version: "0.0.1"
+    testkube.io/test-category: ragas-evaluation
+    app: testworkflows
+spec:
+  config:
+    experimentName:
+      type: string
+      description: "Name of the experiment for report labeling"
+  steps:
+    - name: visualize-metrics
+      artifacts:
+        paths:
+          - "data/results/evaluation_report.html"
+      run:
+        image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
+        args:
+          - visualize.py
+          - "{{ config.experimentName }}"
+          - "{{ execution.id }}"
+          - "{{ execution.number }}"
