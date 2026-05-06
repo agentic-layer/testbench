@@ -177,6 +177,7 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	cd config/testworkflows && $(KUSTOMIZE) edit set image ghcr.io/agentic-layer/testbench/testworkflows=${TESTWORKFLOW_IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+	git checkout -- config/manager/kustomization.yaml config/testworkflows/kustomization.yaml
 
 .PHONY: flux-push
 flux-push: manifests generate kustomize ## Push the manifests to a oci repository for FluxCD to consume.
