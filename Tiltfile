@@ -42,23 +42,21 @@ helm_resource(
     '--wait-for-jobs', '--timeout=10m'],
 )
 
-# Deploy testbench Helm chart
-k8s_yaml(helm(
-    'chart',
-    name='testbench',
-    namespace='testkube',
-    values=['chart/values.yaml'],
-    set=[
-        'image.tag=latest',
-    ],
-))
+# Build the testworkflow image locally so code changes flow into Testkube runs.
+docker_build(
+    'ghcr.io/agentic-layer/testbench/testworkflows',
+    '.',
+    dockerfile='Dockerfile',
+)
 
-# Build and deploy the testbench operator (mirrors `make -C operator deploy`)
+# Build the testbench operator image locally.
 docker_build(
     'ghcr.io/agentic-layer/testbench/operator',
     'operator',
     dockerfile='operator/Dockerfile',
 )
+
+# Deploy the unified testbench install: operator + testworkflow templates + dashboard ConfigMap.
 k8s_yaml(kustomize('operator/config/default'))
 
 # Apply local development manifests
