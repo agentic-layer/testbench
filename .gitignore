@@ -37,3 +37,6 @@ __pycache__/
 
 # oh-my-claudecode state
 .omc
+
+# git worktrees
+.worktrees/
