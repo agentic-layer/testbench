@@ -17,15 +17,15 @@ The two pieces ship via different mechanisms, land in different namespaces, and 
 A single command installs the entire testbench:
 
 ```shell
-kubectl apply -f https://github.com/agentic-layer/testbench/releases/download/v<version>/installer.yaml
+kubectl apply -f https://github.com/agentic-layer/testbench/releases/download/v<version>/install.yaml
 ```
 
-`installer.yaml` is a fully rendered, version-pinned manifest published as a GitHub Release asset. The Helm chart is retired in the same release.
+`install.yaml` is a fully rendered, version-pinned manifest published as a GitHub Release asset. (The release already publishes `operator/dist/install.yaml` today; this change extends its content to include the TestWorkflowTemplates and dashboard ConfigMap, making it a complete installer.) The Helm chart is retired in the same release.
 
 ## Non-Goals
 
-- Adopting existing Helm-installed deployments in place. Existing users run `helm uninstall` then `kubectl apply -f installer.yaml` (hard cutover).
-- Operator-managed runtime reconciliation of TestWorkflowTemplates or the dashboard ConfigMap. They remain static manifests in `installer.yaml`.
+- Adopting existing Helm-installed deployments in place. Existing users run `helm uninstall` then `kubectl apply -f install.yaml` (hard cutover).
+- Operator-managed runtime reconciliation of TestWorkflowTemplates or the dashboard ConfigMap. They remain static manifests in `install.yaml`.
 - A `latest`-floating install URL. Every documented install pins a version.
 
 ## Design
@@ -79,7 +79,7 @@ Rationale:
   - Add an `images:` block so `make build-installer IMG=... TESTWORKFLOW_IMG=...` stamps both the operator and the testworkflows image tags.
   - Keep `namespace: testbench-operator-system`. This only applies to resources without an explicit namespace — the TestWorkflowTemplates and dashboard ConfigMap pin their own via their sub-`kustomization.yaml`.
 
-- `operator/Makefile` — extend the `build-installer` target to accept a `TESTWORKFLOW_IMG` variable (alongside the existing `IMG`) and apply both image transforms before rendering. Output stays at `operator/dist/installer.yaml`.
+- `operator/Makefile` — extend the `build-installer` target to accept a `TESTWORKFLOW_IMG` variable (alongside the existing `IMG`) and apply both image transforms before rendering. Output stays at `operator/dist/install.yaml`.
 
 - `Tiltfile`:
   - Remove the `k8s_yaml(helm('chart', ...))` block.
@@ -88,9 +88,9 @@ Rationale:
 
 - `docs/modules/how-to/pages/install.adoc` — rewritten around `kubectl apply -f`; the Helm `--set` table is replaced by a kustomize-overlay section linking the two committed examples.
 
-- `README.md` — install snippet updated to the `kubectl apply -f installer.yaml` form.
+- `README.md` — install snippet updated to the `kubectl apply -f install.yaml` form.
 
-- CI workflow that publishes the OCI Helm chart — replaced by a step that uploads `operator/dist/installer.yaml` as a GitHub Release asset on tag push.
+- CI workflow that publishes the OCI Helm chart — replaced by a step that uploads `operator/dist/install.yaml` as a GitHub Release asset on tag push.
 
 **Deleted:**
 
@@ -104,7 +104,7 @@ Without Helm values, customization moves to documented kustomize overlays. Two e
 - `custom-image-tag/` — overrides the testworkflows image tag.
 - `custom-dashboard-namespace/` — moves the dashboard ConfigMap to a non-default namespace.
 
-`install.adoc` documents the pattern: write a small `kustomization.yaml` whose `resources:` references the released `installer.yaml`, then add the desired patches.
+`install.adoc` documents the pattern: write a small `kustomization.yaml` whose `resources:` references the released `install.yaml`, then add the desired patches.
 
 ### Build & release
 
@@ -112,8 +112,8 @@ Per release tag `v<x.y.z>`:
 
 1. CI builds and pushes the operator image to `ghcr.io/agentic-layer/testbench/operator:v<x.y.z>`.
 2. CI builds and pushes the testworkflows image to `ghcr.io/agentic-layer/testbench/testworkflows:v<x.y.z>`.
-3. CI runs `make -C operator build-installer IMG=...:v<x.y.z> TESTWORKFLOW_IMG=...:v<x.y.z>`, producing `operator/dist/installer.yaml` with both tags pinned.
-4. CI uploads `operator/dist/installer.yaml` as an asset on the GitHub Release for the tag.
+3. CI runs `make -C operator build-installer IMG=...:v<x.y.z> TESTWORKFLOW_IMG=...:v<x.y.z>`, producing `operator/dist/install.yaml` with both tags pinned.
+4. CI uploads `operator/dist/install.yaml` as an asset on the GitHub Release for the tag.
 5. The OCI Helm chart push step is removed.
 
 No `latest` floating asset is published. Every documented install URL pins a version.
@@ -132,7 +132,7 @@ The previous `helm_resource` plumbing for the testbench chart is removed. Testku
 
 Hard cutover. The release notes for the cutover version include a breaking-change banner:
 
-> The Helm chart is removed in v<version>. Run `helm uninstall testbench -n testkube` before applying `installer.yaml`. The five `TestWorkflowTemplate` CRs and the Grafana dashboard ConfigMap will be recreated by the new install. In-flight TestWorkflows will be interrupted.
+> The Helm chart is removed in v<version>. Run `helm uninstall testbench -n testkube` before applying `install.yaml`. The five `TestWorkflowTemplate` CRs and the Grafana dashboard ConfigMap will be recreated by the new install. In-flight TestWorkflows will be interrupted.
 
 No adopt-in-place script.
 
@@ -140,7 +140,7 @@ No adopt-in-place script.
 
 - `docs/modules/how-to/pages/install.adoc`:
   - Prerequisites unchanged (Kubernetes + Testkube + Grafana stack for the dashboard).
-  - Step 1: replace `helm upgrade --install` with `kubectl apply -f https://github.com/agentic-layer/testbench/releases/download/v<version>/installer.yaml`.
+  - Step 1: replace `helm upgrade --install` with `kubectl apply -f https://github.com/agentic-layer/testbench/releases/download/v<version>/install.yaml`.
   - Step 2: replace the Helm `--set` table with a "Customizing the installation" section showing the kustomize-overlay pattern; link the two committed example overlays.
   - Verification steps (`kubectl get testworkflowtemplates -n testkube`, `kubectl get configmap -n monitoring`) unchanged.
 - `README.md`: one-line install snippet update.
@@ -148,7 +148,7 @@ No adopt-in-place script.
 
 ## Testing
 
-- **Static check (CI):** after `make build-installer`, run `kubectl apply --dry-run=client -f operator/dist/installer.yaml` to catch broken YAML or schema regressions before publishing.
+- **Static check (CI):** after `make build-installer`, run `kubectl apply --dry-run=client -f operator/dist/install.yaml` to catch broken YAML or schema regressions before publishing.
 - **Overlay smoke (CI):** `kustomize build operator/config/samples/overlays/custom-image-tag` and `... /custom-dashboard-namespace` produce non-empty output and are valid YAML.
 - **E2E:** the existing `tests_e2e/test_e2e.py` exercises the full 4-phase pipeline via Testkube against the Tilt environment, which now installs everything from the unified kustomize tree. A green `uv run poe test_e2e` validates the integration end to end.
 - **Manual smoke:** on a clean kind cluster, `tilt down && tilt up` brings everything up; confirm:
@@ -163,6 +163,6 @@ None — all design decisions captured above.
 
 ## Out of Scope
 
-- Operator-managed runtime reconciliation of the TestWorkflowTemplates or dashboard ConfigMap (option C from the brainstorm; rejected as a bigger change with no immediate UX win once `installer.yaml` exists).
+- Operator-managed runtime reconciliation of the TestWorkflowTemplates or dashboard ConfigMap (option C from the brainstorm; rejected as a bigger change with no immediate UX win once `install.yaml` exists).
 - Republishing the chart in parallel for a deprecation window (option C from the migration brainstorm; rejected because the project is pre-1.0 with a small known user base).
 - A `latest` floating install URL.
