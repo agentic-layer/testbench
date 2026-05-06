@@ -5,15 +5,28 @@ Use this overlay when your Grafana sidecar watches a namespace other than
 
 ## Usage
 
-Edit `kustomization.yaml`:
+1. Download the released `install.yaml` into this directory:
 
-- Replace `resources:` with the released `install.yaml` URL for your target version.
-- Replace `value: observability` with your target namespace.
+   ```sh
+   curl -L -o install.yaml \
+     https://github.com/agentic-layer/testbench/releases/download/v0.1.0/install.yaml
+   ```
 
-The target namespace must exist before applying.
+2. Edit `kustomization.yaml`:
 
-Then apply:
+   - Change `resources:` to `- install.yaml`.
+   - Replace `value: observability` with your target namespace.
 
-```sh
-kubectl apply -k .
-```
+3. Ensure the target namespace exists.
+
+4. Preview the rendered manifests:
+
+   ```sh
+   kustomize build .
+   ```
+
+5. Apply:
+
+   ```sh
+   kubectl apply -k .
+   ```
