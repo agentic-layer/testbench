@@ -23,7 +23,7 @@ ai_gateway_litellm_install(version='0.3.2')
 
 v1alpha1.extension(name='agent-gateway-krakend', repo_name='agentic-layer', repo_path='agent-gateway-krakend')
 load('ext://agent-gateway-krakend', 'agent_gateway_krakend_install')
-agent_gateway_krakend_install(version='0.4.1')
+agent_gateway_krakend_install(version='0.7.0')
 
 # Pre-create testkube namespace to avoid race condition with kustomize resources
 k8s_yaml(blob('''
