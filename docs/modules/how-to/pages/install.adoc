@@ -1,71 +1,78 @@
 = Install the Testbench
 
-This guide walks you through installing the Testbench Helm chart into an existing Kubernetes cluster with Testkube.
+This guide walks you through installing the Testbench into an existing Kubernetes cluster with Testkube.
 
 == Prerequisites
 
 * A running Kubernetes cluster with `kubectl` configured
-* https://helm.sh/docs/intro/install/[Helm] installed
 * https://testkube.io/[Testkube] installed in the `testkube` namespace
+* (Optional) Grafana with the dashboard sidecar watching the `monitoring` namespace, if you want the bundled dashboards
 
-== Step 1: Install the Helm chart
+== Step 1: Apply the installer
 
-Install the Testbench chart from the OCI registry:
-
-[source,shell]
-----
-helm upgrade --install testbench \
-  oci://ghcr.io/agentic-layer/charts/testbench \
-  --namespace testkube \
-  --version <version>
-----
-
-This installs the `TestWorkflowTemplate` CRs and an optional Grafana dashboard ConfigMap into the `testkube` namespace.
-
-IMPORTANT: The Testbench must be installed into the `testkube` namespace because the `TestWorkflowTemplate` resources need to be co-located with the Testkube controller that orchestrates them.
-
-== Step 2: Override default values (optional)
-
-You can customise the installation by passing `--set` flags or a values file. The following table lists all available values:
-
-[cols="3,2,5"]
-|===
-| Value | Default | Description
-
-| `image.repository`
-| `ghcr.io/agentic-layer/testbench/testworkflows`
-| Container image used by all pipeline phases
-
-| `image.tag`
-| Chart `appVersion`
-| Image tag override
-
-| `image.pullPolicy`
-| `IfNotPresent`
-| Kubernetes image pull policy
-
-| `grafana.dashboardConfigMapName`
-| `grafana-testkube-dashboard`
-| Name of the ConfigMap containing the Grafana dashboard JSON
-
-| `grafana.dashboardNamespace`
-| `monitoring`
-| Namespace where the Grafana dashboard ConfigMap is created
-|===
-
-Example with overrides:
+Install everything (operator + TestWorkflowTemplates + Grafana dashboard ConfigMap) with one command:
 
 [source,shell]
 ----
-helm install testbench oci://ghcr.io/agentic-layer/testbench/chart \
-  -n testkube \
-  --set image.tag=v1.2.0 \
-  --set grafana.dashboardNamespace=observability
+kubectl apply -f https://github.com/agentic-layer/testbench/releases/download/<version>/install.yaml
+----
+
+Replace `<version>` with the release tag you want, for example `v0.1.0`.
+
+The installer creates:
+
+* The `testbench-operator-system` namespace and the operator controller manager.
+* The `Experiment` Custom Resource Definition.
+* Five `TestWorkflowTemplate` resources in the `testkube` namespace.
+* A `grafana-testkube-dashboard` ConfigMap in the `monitoring` namespace.
+
+IMPORTANT: The `testkube` and `monitoring` namespaces must already exist. The installer assumes they are owned by your Testkube and Grafana installs.
+
+== Step 2: Customise the installation (optional)
+
+Customisation happens via Kustomize overlays. Two examples are committed in the repository under `operator/config/samples/overlays/`:
+
+* link:https://github.com/agentic-layer/testbench/tree/main/operator/config/samples/overlays/custom-image-tag[custom-image-tag] — override the testworkflows image tag.
+* link:https://github.com/agentic-layer/testbench/tree/main/operator/config/samples/overlays/custom-dashboard-namespace[custom-dashboard-namespace] — move the dashboard ConfigMap to a different namespace.
+
+The pattern: download the released `install.yaml` into an overlay directory, then write a small `kustomization.yaml` that references it and adds patches:
+
+[source,shell]
+----
+curl -L -o install.yaml \
+  https://github.com/agentic-layer/testbench/releases/download/<version>/install.yaml
+----
+
+[source,yaml]
+----
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - install.yaml
+
+images:
+  - name: ghcr.io/agentic-layer/testbench/testworkflows
+    newTag: my-custom-tag
+----
+
+Apply with:
+
+[source,shell]
+----
+kubectl apply -k <overlay-directory>
 ----
 
 == Step 3: Verify the installation
 
-Confirm that all five `TestWorkflowTemplate` resources are present:
+Confirm the operator is running:
+
+[source,shell]
+----
+kubectl get deployment -n testbench-operator-system
+----
+
+Confirm all five `TestWorkflowTemplate` resources are present:
 
 [source,shell]
 ----
@@ -77,23 +84,35 @@ Expected output:
 [source]
 ----
 NAME                 AGE
-setup-template       10s
-run-template         10s
 evaluate-template    10s
 publish-template     10s
+run-template         10s
+setup-template       10s
 visualize-template   10s
 ----
 
 == Step 4: Verify Grafana dashboards (optional)
 
-If you use Grafana with a sidecar that watches for dashboard ConfigMaps, verify the dashboard was created:
+If your Grafana install watches `monitoring` for dashboard ConfigMaps:
 
 [source,shell]
 ----
 kubectl get configmap grafana-testkube-dashboard -n monitoring
 ----
 
-NOTE: The Grafana sidecar must be configured to watch ConfigMaps with the label `grafana_dashboard: "1"` in the target namespace. Refer to your Grafana deployment documentation for sidecar configuration details.
+NOTE: The Grafana sidecar must be configured to watch ConfigMaps with the label `grafana_dashboard: "1"` in the target namespace.
+
+== Migrating from the Helm chart
+
+The Helm chart at `oci://ghcr.io/agentic-layer/charts/testbench` is no longer published. To migrate:
+
+[source,shell]
+----
+helm uninstall testbench -n testkube
+kubectl apply -f https://github.com/agentic-layer/testbench/releases/download/<version>/install.yaml
+----
+
+In-flight TestWorkflows are interrupted by the uninstall. Run the migration during a maintenance window if that matters.
 
 == Next steps
 

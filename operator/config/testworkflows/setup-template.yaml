@@ -2,13 +2,13 @@ apiVersion: testworkflows.testkube.io/v1
 kind: TestWorkflowTemplate
 metadata:
   name: setup-template
-  namespace: {{ include "testbench.namespace" . }}
+  namespace: testkube
   labels:
-    {{- include "testbench.labels" . | nindent 4 }}
-    {{- include "testbench.workflowLabels" . | nindent 4 }}
-
+    app.kubernetes.io/name: testbench
+    app.kubernetes.io/version: "0.0.1"
+    testkube.io/test-category: ragas-evaluation
+    app: testworkflows
 spec:
-  # Configuration parameters that can be overridden
   config:
     bucket:
       type: string
@@ -16,16 +16,14 @@ spec:
     key:
       type: string
       description: "S3/MinIO object key (path to dataset file in .csv / .json / .parquet format)"
-
-  # Steps to execute
   steps:
     - name: setup
       artifacts:
         paths:
           - "data/datasets/experiment.json"
       run:
-        image: {{ include "testbench.image" . }}
+        image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
         args:
           - setup.py
-          - "{{`{{ config.bucket }}`}}"
-          - "{{`{{ config.key }}`}}"
+          - "{{ config.bucket }}"
+          - "{{ config.key }}"

@@ -5,7 +5,6 @@ repos:
     hooks:
       - id: check-yaml
         args: [--allow-multiple-documents]
-        exclude: ^chart/templates/
       - id: check-ast
       - id: check-case-conflict
       - id: check-json
@@ -33,10 +32,3 @@ repos:
         entry: "uv run poe ruff"
         types_or: [ python ]
         pass_filenames: false
-
-      - id: helm-lint
-        name: Helm Lint
-        entry: helm lint chart/
-        language: system
-        pass_filenames: false
-        files: ^chart/

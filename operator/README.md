@@ -6,6 +6,8 @@ Kubernetes operator for managing automated agent evaluation experiments using th
 
 The Testbench Operator provides a Kubernetes-native way to define and execute agent evaluation experiments. It creates and manages TestWorkflow resources in Testkube to orchestrate the 4-phase evaluation pipeline (setup, run, evaluate, publish) based on Experiment CRD specifications.
 
+> **For end users:** the recommended install is `kubectl apply -f` of the released `install.yaml`. See [docs/modules/how-to/pages/install.adoc](../docs/modules/how-to/pages/install.adoc). The `make deploy` and `make install` flows below are for operator development.
+
 ## Getting Started
 
 ### Prerequisites

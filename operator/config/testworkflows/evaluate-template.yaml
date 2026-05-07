@@ -2,12 +2,13 @@ apiVersion: testworkflows.testkube.io/v1
 kind: TestWorkflowTemplate
 metadata:
   name: evaluate-template
-  namespace: {{ include "testbench.namespace" . }}
+  namespace: testkube
   labels:
-    {{- include "testbench.labels" . | nindent 4 }}
-    {{- include "testbench.workflowLabels" . | nindent 4 }}
+    app.kubernetes.io/name: testbench
+    app.kubernetes.io/version: "0.0.1"
+    testkube.io/test-category: ragas-evaluation
+    app: testworkflows
 spec:
-  # Configuration parameters that can be overridden
   config:
     openAiBasePath:
       type: string
@@ -17,19 +18,17 @@ spec:
       type: string
       description: "API Key for OpenAI API"
       default: ""
-
-  # Steps to execute
   steps:
     - name: evaluate-results
       artifacts:
         paths:
           - "data/experiments/evaluated_experiment.json"
       run:
-        image: {{ include "testbench.image" . }}
+        image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
         args:
           - evaluate.py
         env:
           - name: OPENAI_BASE_URL
-            value: "{{`{{ config.openAiBasePath }}`}}"
+            value: "{{ config.openAiBasePath }}"
           - name: OPENAI_API_KEY
-            value: "{{`{{ config.openAiApiKey }}`}}"
+            value: "{{ config.openAiApiKey }}"

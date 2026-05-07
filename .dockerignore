@@ -48,7 +48,6 @@ tests/
 tests_e2e/
 
 # Deployment manifests
-chart/
 deploy/
 
 # Temporary files

@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# When using this overlay against a release artifact, download the released
+# install.yaml into this directory and replace the resources entry with
+# `install.yaml`. See ../custom-image-tag/README.md for the curl command.
+resources:
+  - ../../../default
+
+# Move the Grafana dashboard ConfigMap to a custom namespace.
+patches:
+  - target:
+      kind: ConfigMap
+      name: grafana-testkube-dashboard
+    patch: |
+      - op: replace
+        path: /metadata/namespace
+        value: observability

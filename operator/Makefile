@@ -170,10 +170,14 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	rm Dockerfile.cross
 
 .PHONY: build-installer
-build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs, operator, testworkflow templates, and dashboards.
+	@if [ -z "$(IMG)" ]; then echo "IMG must be set (e.g. IMG=ghcr.io/agentic-layer/testbench/operator:v0.1.0)" >&2; exit 1; fi
+	@if [ -z "$(TESTWORKFLOW_IMG)" ]; then echo "TESTWORKFLOW_IMG must be set (e.g. TESTWORKFLOW_IMG=ghcr.io/agentic-layer/testbench/testworkflows:v0.1.0)" >&2; exit 1; fi
 	mkdir -p dist
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	cd config/testworkflows && $(KUSTOMIZE) edit set image ghcr.io/agentic-layer/testbench/testworkflows=${TESTWORKFLOW_IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
+	git checkout -- config/manager/kustomization.yaml config/testworkflows/kustomization.yaml
 
 .PHONY: flux-push
 flux-push: manifests generate kustomize ## Push the manifests to a oci repository for FluxCD to consume.
