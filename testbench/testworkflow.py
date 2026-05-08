@@ -5,7 +5,7 @@ setup -> run -> evaluate -> [publish] -> visualize.
 
 Usage::
 
-    python3 scripts/pipeline.py config.yaml
+    python3 testbench/testworkflow.py config.yaml
 """
 
 from __future__ import annotations

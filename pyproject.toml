@@ -1,5 +1,5 @@
 [project]
-name = "test-bench"
+name = "testbench"
 version = "0.1.0"
 description = "Testbench to evaluate agents using Ragas"
 requires-python = ">=3.12"
@@ -59,7 +59,7 @@ line-length = 120
 extend-select = ["Q", "N", "I001", "PT", "TID251", "DTZ"]
 
 [tool.mypy]
-mypy_path = "scripts"
+mypy_path = "testbench"
 explicit_package_bases = true
 
 [tool.bandit]

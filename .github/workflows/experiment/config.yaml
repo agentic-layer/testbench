@@ -1,5 +1,5 @@
 # Pipeline Configuration
-# Run with: uv run python3 scripts/pipeline.py config.yaml
+# Run with: uv run python3 testbench/testworkflow.py config.yaml
 
 # Dataset source — how to acquire the test dataset
 dataset:

@@ -2246,7 +2246,7 @@ wheels = [
 ]
 
 [[package]]
-name = "test-bench"
+name = "testbench"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
