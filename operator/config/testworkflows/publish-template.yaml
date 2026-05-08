@@ -18,7 +18,8 @@ spec:
       run:
         image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
         args:
-          - publish.py
+          - -m
+          - testbench.publish
           - "{{ config.experimentName }}"
           - "{{ execution.id }}"
           - "{{ execution.number }}"

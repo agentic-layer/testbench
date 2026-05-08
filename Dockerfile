@@ -8,14 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install UV package manager
 COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /bin/uv
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Copy package source and dependency files (README and LICENSE required for hatchling build)
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY testbench/ ./testbench/
 
-# Install dependencies using UV
+# Install dependencies and the testbench package itself
 RUN uv sync
-
-# Copy scripts package to root dir
-COPY scripts/ ./
 
 # Create directories for data and results
 RUN mkdir -p data/datasets data/experiments results
@@ -24,8 +22,5 @@ RUN mkdir -p data/datasets data/experiments results
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Make scripts executable
-RUN chmod +x *.py
-
-# Set 'uv run python3' entrypoint so we can run scripts directly
+# Run modules under uv-managed Python; templates pass `-m testbench.<module>` and any args.
 ENTRYPOINT ["uv", "run", "python3"]

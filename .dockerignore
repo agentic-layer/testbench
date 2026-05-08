@@ -36,8 +36,9 @@ ENV/
 .mypy_cache/
 .ruff_cache/
 
-# Documentation
+# Documentation (README.md is required by hatchling/pyproject.toml)
 *.md
+!README.md
 
 # Data directories (created at runtime)
 data/

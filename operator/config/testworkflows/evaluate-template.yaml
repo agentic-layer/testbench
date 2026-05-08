@@ -26,7 +26,8 @@ spec:
       run:
         image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
         args:
-          - evaluate.py
+          - -m
+          - testbench.evaluate
         env:
           - name: OPENAI_BASE_URL
             value: "{{ config.openAiBasePath }}"

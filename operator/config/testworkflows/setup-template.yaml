@@ -24,6 +24,7 @@ spec:
       run:
         image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
         args:
-          - setup.py
+          - -m
+          - testbench.setup
           - "{{ config.bucket }}"
           - "{{ config.key }}"
