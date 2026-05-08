@@ -8,6 +8,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Kubernetes-native agent evaluation system that executes test datasets via A2A protocol, evaluates responses using a generic metrics framework (with RAGAS as the default adapter), and publishes metrics via OTLP. Part of the Agentic Layer platform for automated agent testing and quality assurance.
 
+## User Guides and How-To Guides
+
+- @docs/modules/ROOT/pages/how-to-guides/install.adoc
+- @docs/modules/ROOT/pages/how-to-guides/first-workflow.adoc
+
+## Reference Documentation
+
+- @docs/modules/ROOT/pages/reference.adoc
+- Overall Agentic Layer Architecture: https://docs.agentic-layer.ai/architecture/main/index.html
+
 ---
 
 ## Common Commands

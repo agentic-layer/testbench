@@ -1,10 +1,18 @@
+// HOW-TO GUIDE — Diátaxis
+// This page answers a goal-shaped question: "how do I do X?"
+// DO: assume context; give concrete steps; link to reference for fields.
+// DON'T: teach concepts; duplicate reference content; include long explanations.
+// If a section drifts into "what is this and why" → move to explanation.adoc.
+// If a section drifts into "exhaustive list of fields/values" → move to reference.adoc.
+// If a section turns into a from-zero walkthrough → move to a tutorial in a showcase repo.
+
 = Create Your First TestWorkflow
 
 This guide walks you through defining an experiment, creating a TestWorkflow, and running it against an agent deployed in your cluster.
 
 == Prerequisites
 
-* Testbench installed (see xref:testbench:how-to:install.adoc[Install the Testbench])
+* Testbench installed (see xref:testbench::how-to-guides/install.adoc[Install the Testbench])
 * An agent with an A2A protocol endpoint deployed in the cluster
 * An AI Gateway deployed in your cluster
 * An OTLP collector endpoint reachable from the `testkube` namespace
@@ -204,7 +212,7 @@ kubectl testkube get testworkflow example-workflow-1
 
 === Grafana dashboards
 
-If you installed the Grafana dashboard ConfigMap (see xref:testbench:how-to:install.adoc[Install the Testbench]), open Grafana and look for the **Testkube Evaluation** dashboard. It displays per-metric scores filtered by workflow name.
+If you installed the Grafana dashboard ConfigMap (see xref:testbench::how-to-guides/install.adoc[Install the Testbench]), open Grafana and look for the **Testkube Evaluation** dashboard. It displays per-metric scores filtered by workflow name.
 
 === HTML report artifact
 

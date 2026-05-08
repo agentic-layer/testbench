@@ -1,0 +1,51 @@
+// EXPLANATION — Diátaxis
+// This page is understanding-shaped: "what is this, why, how does it fit?"
+// DO: discuss design choices, alternatives, trade-offs; cross-link to how-to and reference.
+// DON'T: give step-by-step instructions; provide exhaustive field listings.
+// If a section drifts into "how do I do X" → move to how-to-guide.adoc.
+// If a section drifts into "list of all fields" → move to reference.adoc.
+
+= What is Testbench
+
+== What it is
+
+Testbench is a Kubernetes-native agent evaluation system. It executes curated prompt suites against deployed agents using the A2A protocol, scores each response with LLM-as-a-judge metrics (RAGAS by default), and publishes the resulting scores to an OTLP-compatible observability backend. The evaluation is structured as a five-phase `TestWorkflowTemplate` pipeline orchestrated by Testkube: Setup downloads a dataset, Run queries the agent, Evaluate scores the responses, Publish sends scores to OTLP, and Visualize produces a self-contained HTML report.
+
+== Why it exists
+
+Classical test frameworks validate deterministic systems: a function returns a predictable value, and either it matches the expected output or it does not. Agents are non-deterministic — the same prompt can produce semantically correct answers in many different surface forms, and correctness itself is often a matter of degree rather than binary pass/fail. Counting exact string matches or asserting on specific tool call sequences will produce high false-negative rates and erode trust in the test suite over time.
+
+Testbench solves this by delegating correctness judgement to an LLM-as-a-judge. The judge model evaluates each response against a set of configurable metrics (goal accuracy, tool call accuracy, topic adherence) and returns a numeric score. Thresholds on those scores become the pass/fail signal, giving engineers a stable, interpretable signal that tolerates natural language variation while still catching meaningful regressions.
+
+== How it fits
+
+Testbench integrates with four other components of the Agentic Layer:
+
+**Testkube** — Testbench is implemented as a set of reusable `TestWorkflowTemplate` CRDs deployed by the Helm chart. Testkube orchestrates the pipeline phases, provides the shared volume that passes state between phases, exposes workflow triggers (e.g. on every agent redeployment), and stores artifacts such as the HTML report. Testbench does not implement any scheduling or execution logic of its own.
+
+**Agent Runtime Operator** — the agents under evaluation are deployed and managed by the Agent Runtime Operator. Testbench reaches them via their A2A endpoints, which the operator exposes in-cluster. The A2A protocol provides a uniform interface regardless of the underlying agent framework, so the same Testbench workflow can evaluate agents built on different platforms.
+
+**AI Gateway** — the Evaluate phase sends judge prompts to an LLM through the AI Gateway. Routing evaluation traffic through the gateway enforces consistent rate limits, model access policies, and observability across all LLM calls in the platform — including those made by the test harness itself.
+
+**Observability stack** — the Publish phase exports per-step evaluation scores as OTLP gauge metrics to the in-cluster OTLP collector (typically the LGTM stack). Grafana dashboards built on top of these metrics let operators track metric score trends across workflow runs, filter by workflow name, and detect regressions as they are introduced.
+
+== Trade-offs and alternatives
+
+=== LLM-as-a-judge vs. deterministic assertions
+
+LLM-as-a-judge introduces a dependency on a second model call per evaluation step and an inherent non-determinism in the judge itself. The alternative — asserting on exact tool call sequences or output strings — is cheaper and fully deterministic, but produces brittle tests that break whenever an agent is improved in ways that change surface form without changing correctness. Testbench uses LLM-as-a-judge by default because the signal quality over a large prompt suite outweighs the added latency and cost for most evaluation scenarios. Exact-match assertions remain available via the `ToolCallAccuracy` metric when the tool call surface is stable and must be tested precisely.
+
+=== Testkube vs. custom evaluation runners
+
+Testkube provides workflow orchestration, artifact storage, trigger support, and a UI for browsing execution history at no extra infrastructure cost (it is already required by the Agentic Layer platform). Building a custom evaluation runner would replicate this infrastructure. The trade-off is that Testbench is tightly coupled to the Testkube CRD API and must be installed into the `testkube` namespace alongside the Testkube controller.
+
+=== In-cluster evaluation vs. external SaaS evaluation platforms
+
+Running evaluations in-cluster keeps agent traffic, prompt data, and scores within the Kubernetes network boundary — important for data-residency requirements. External SaaS platforms offer richer metric libraries and managed infrastructure, but require sending prompt and response data outside the cluster. Testbench is designed for teams that prefer to keep evaluation data in-cluster while still publishing aggregated numeric scores to a shared observability backend.
+
+== Related
+
+* xref:testbench:architecture:index.adoc[Testbench Architecture] — arc42 view of the pipeline components, data models, and deployment topology.
+* xref:testbench::reference.adoc[]
+* xref:testbench::how-to-guides/install.adoc[]
+* xref:testbench::how-to-guides/first-workflow.adoc[]

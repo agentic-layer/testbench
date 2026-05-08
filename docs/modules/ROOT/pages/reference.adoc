@@ -1,0 +1,172 @@
+// REFERENCE — Diátaxis
+// This page is information-shaped: tables, field lists, full API surface.
+// DO: be exhaustive within scope; use stable, ctrl-F-able structure;
+//     one heading per resource/CRD/command/field group.
+// DON'T: include tutorials, decision trees, or "why" explanations.
+// If a section drifts into "how would you do X" → move to how-to-guide.adoc.
+// If a section drifts into "why this exists" → move to explanation.adoc.
+
+= Testbench Reference
+
+This reference covers the Helm chart values and the five `TestWorkflowTemplate` CRDs that the chart installs into the `testkube` namespace.
+
+== Helm chart values
+
+[cols="3,1,2,4"]
+|===
+| Field | Type | Default | Description
+
+| `namespace.create`
+| boolean
+| `true`
+| When `true`, the chart creates the target namespace if it does not exist.
+
+| `namespace.name`
+| string
+| `testkube`
+| Namespace into which the chart resources are deployed.
+
+| `image.repository`
+| string
+| `ghcr.io/agentic-layer/testbench/testworkflows`
+| Container image used by all pipeline phase containers.
+
+| `image.tag`
+| string
+| `""` (chart `appVersion`)
+| Image tag override. Empty string uses the chart's `appVersion`.
+
+| `image.pullPolicy`
+| string
+| `IfNotPresent`
+| Kubernetes image pull policy.
+
+| `grafana.dashboardConfigMapName`
+| string
+| `grafana-testkube-dashboard`
+| Name of the ConfigMap containing the Grafana dashboard JSON.
+
+| `grafana.dashboardNamespace`
+| string
+| `monitoring`
+| Namespace where the Grafana dashboard ConfigMap is created. Must be watched by your Grafana sidecar.
+|===
+
+== TestWorkflowTemplates
+
+The chart installs five `TestWorkflowTemplate` CRDs. Workflows reference them via the `use` list. All templates share a common `/app/data` volume provided by the calling `TestWorkflow`.
+
+=== +setup-template+
+
+Downloads a dataset from an S3-compatible store and writes it to the shared volume as an Experiment JSON file.
+
+[cols="2,1,4"]
+|===
+| Config parameter | Type | Description
+
+| `bucket`
+| string
+| S3/MinIO bucket name containing the dataset.
+
+| `key`
+| string
+| S3/MinIO object key (path to dataset file). Supported formats: `.csv`, `.json`, `.parquet`.
+|===
+
+*Input*: S3/MinIO object referenced by `bucket` / `key`.
+
+*Output*: `data/datasets/experiment.json` — an `Experiment` model serialized as JSON.
+
+*Use this template* when your dataset lives in object storage. For ConfigMap-based datasets, omit this template and mount the file directly via `spec.content.files`.
+
+=== +run-template+
+
+Sends every step in the experiment to the target agent via the A2A protocol and records responses.
+
+[cols="2,1,4"]
+|===
+| Config parameter | Type | Description
+
+| `agentUrl`
+| string
+| HTTP URL of the agent's A2A endpoint (e.g. `+http://weather-agent.sample-agents:8000+`).
+|===
+
+*Input*: `data/datasets/experiment.json`.
+
+*Output*: `data/experiments/executed_experiment.json` — an `ExecutedExperiment` model.
+
+*Implicit inputs*: `workflow.name` (injected automatically by Testkube).
+
+=== +evaluate-template+
+
+Scores agent responses using LLM-as-a-judge metrics via the configured metrics framework (RAGAS by default).
+
+[cols="2,1,4"]
+|===
+| Config parameter | Type | Description
+
+| `openApiBasePath`
+| string
+| Base URL for the OpenAI-compatible API used by the LLM judge (e.g. the in-cluster AI Gateway). Defaults to empty string, which uses the `OPENAI_BASE_URL` environment variable if set.
+|===
+
+*Input*: `data/experiments/executed_experiment.json`.
+
+*Output*: `data/experiments/evaluated_experiment.json` — an `EvaluatedExperiment` model.
+
+=== +publish-template+
+
+Publishes per-step evaluation scores to the OTLP endpoint configured via the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable.
+
+*Config parameters*: none.
+
+*Input*: `data/experiments/evaluated_experiment.json` plus `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable.
+
+*Output*: Gauge metrics emitted to the OTLP collector. Each metric is labeled with `workflow_name`, `scenario`, and `step` attributes.
+
+*Implicit inputs*: `workflow.name`, `execution.id`, `execution.number` (injected automatically by Testkube).
+
+=== +visualize-template+
+
+Generates a self-contained HTML evaluation report and saves it as a workflow artifact.
+
+*Config parameters*: none.
+
+*Input*: `data/experiments/evaluated_experiment.json`.
+
+*Output*: `data/results/evaluation_report.html` — a single-file HTML dashboard with Chart.js visualizations (summary cards, score bar charts, metric distribution histograms, sortable results table).
+
+*Implicit inputs*: `workflow.name`, `execution.id`, `execution.number` (injected automatically by Testkube).
+
+== OTLP metrics contract
+
+The `publish-template` exports OpenTelemetry gauge metrics over HTTP/protobuf to port `4318`. Each evaluation step produces one gauge observation per metric:
+
+[cols="2,4"]
+|===
+| Attribute | Value
+
+| Metric name
+| The `metric_name` string from the experiment JSON (e.g. `AgentGoalAccuracyWithoutReference`).
+
+| Gauge value
+| Float in `[0.0, 1.0]`.
+
+| `workflow_name`
+| The Testkube workflow name.
+
+| `scenario`
+| The scenario name from the experiment.
+
+| `step`
+| Zero-based step index within the scenario.
+|===
+
+The OTLP endpoint is read from the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable at runtime. Inject it via a ConfigMap or a `container.env` entry in the calling `TestWorkflow`.
+
+== Related
+
+* xref:testbench::explanation.adoc[]
+* xref:testbench::how-to-guides/install.adoc[]
+* xref:testbench::how-to-guides/first-workflow.adoc[]

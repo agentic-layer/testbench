@@ -1,3 +1,11 @@
+// HOW-TO GUIDE — Diátaxis
+// This page answers a goal-shaped question: "how do I do X?"
+// DO: assume context; give concrete steps; link to reference for fields.
+// DON'T: teach concepts; duplicate reference content; include long explanations.
+// If a section drifts into "what is this and why" → move to explanation.adoc.
+// If a section drifts into "exhaustive list of fields/values" → move to reference.adoc.
+// If a section turns into a from-zero walkthrough → move to a tutorial in a showcase repo.
+
 = Install the Testbench
 
 This guide walks you through installing the Testbench into an existing Kubernetes cluster with Testkube.
@@ -116,4 +124,4 @@ In-flight TestWorkflows are interrupted by the uninstall. Run the migration duri
 
 == Next steps
 
-With the Testbench installed, proceed to xref:testbench:how-to:first-workflow.adoc[Create Your First TestWorkflow] to define an experiment and run it against an agent.
+With the Testbench installed, proceed to xref:testbench::how-to-guides/first-workflow.adoc[Create Your First TestWorkflow] to define an experiment and run it against an agent.
