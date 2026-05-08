@@ -2,7 +2,6 @@
   "extends": [
     "github>agentic-layer/renovate-config"
   ],
-  "automergeType": "pr",
   "packageRules": [
     {
       "matchDatasources": ["docker"],
