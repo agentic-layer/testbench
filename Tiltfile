@@ -15,11 +15,11 @@ cert_manager_install()
 
 v1alpha1.extension(name='agent-runtime', repo_name='agentic-layer', repo_path='agent-runtime')
 load('ext://agent-runtime', 'agent_runtime_install')
-agent_runtime_install(version='0.16.0')
+agent_runtime_install(version='0.28.1')
 
 v1alpha1.extension(name='ai-gateway-litellm', repo_name='agentic-layer', repo_path='ai-gateway-litellm')
 load('ext://ai-gateway-litellm', 'ai_gateway_litellm_install')
-ai_gateway_litellm_install(version='0.3.2')
+ai_gateway_litellm_install(version='0.10.0')
 
 v1alpha1.extension(name='agent-gateway-krakend', repo_name='agentic-layer', repo_path='agent-gateway-krakend')
 load('ext://agent-gateway-krakend', 'agent_gateway_krakend_install')
@@ -40,13 +40,6 @@ helm_resource(
     namespace='testkube',
     flags=['--version=2.5.3', '--values=deploy/local/testkube/values.yaml', '--wait',
     '--wait-for-jobs', '--timeout=10m'],
-)
-
-# Build the testworkflow image locally so code changes flow into Testkube runs.
-docker_build(
-    'ghcr.io/agentic-layer/testbench/testworkflows',
-    '.',
-    dockerfile='Dockerfile',
 )
 
 # Build the testbench operator image locally.
