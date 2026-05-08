@@ -55,19 +55,19 @@ export GOOGLE_API_KEY="your-api-key"            # Required for Gemini models
 
 ```shell
 # Phase 1: Download and convert dataset to Experiment JSON
-uv run python3 testbench/setup.py "http://localhost:11020/dataset.csv"
+uv run python3 -m testbench.setup "http://localhost:11020/dataset.csv"
 
 # Phase 2: Execute queries through agent via A2A protocol
-uv run python3 testbench/run.py "http://localhost:11010" "my-workflow"
+uv run python3 -m testbench.run "http://localhost:11010" "my-workflow"
 
 # Phase 3: Evaluate responses using metrics (with model override)
-uv run python3 testbench/evaluate.py --model gemini-2.5-flash-lite
+uv run python3 -m testbench.evaluate --model gemini-2.5-flash-lite
 
 # Phase 4: Publish metrics to OTLP endpoint
-OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" uv run python3 testbench/publish.py "experiment-name" "exec-001" 1
+OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" uv run python3 -m testbench.publish "experiment-name" "exec-001" 1
 
 # Optional: Generate HTML visualization report
-uv run python3 testbench/visualize.py "weather-assistant-test" "exec-001" 1
+uv run python3 -m testbench.visualize "weather-assistant-test" "exec-001" 1
 ```
 
 ### HTML Visualization
@@ -76,10 +76,10 @@ Generate a comprehensive HTML dashboard from evaluation results for local viewin
 
 ```shell
 # Basic usage (after running evaluate.py)
-uv run python3 testbench/visualize.py weather-assistant-test exec-001 1
+uv run python3 -m testbench.visualize weather-assistant-test exec-001 1
 
 # Custom input/output paths
-uv run python3 testbench/visualize.py weather-assistant-test exec-001 1 \
+uv run python3 -m testbench.visualize weather-assistant-test exec-001 1 \
   --input data/experiments/evaluated_experiment.json \
   --output reports/exec-001.html
 ```

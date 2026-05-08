@@ -1,9 +1,9 @@
 """Generic metrics system with framework adapter pattern."""
 
-from metrics.adapter import FrameworkAdapter
-from metrics.protocol import MetricCallable, MetricResult
-from metrics.ragas.adapter import RagasFrameworkAdapter
-from metrics.registry import GenericMetricsRegistry
+from testbench.metrics.adapter import FrameworkAdapter
+from testbench.metrics.protocol import MetricCallable, MetricResult
+from testbench.metrics.ragas.adapter import RagasFrameworkAdapter
+from testbench.metrics.registry import GenericMetricsRegistry
 
 __all__ = [
     "FrameworkAdapter",

@@ -6,6 +6,17 @@ Kubernetes-native agent evaluation system that executes test datasets via A2A pr
 
 Full documentation is available at [docs.agentic-layer.ai](https://docs.agentic-layer.ai/testbench/).
 
+## Install
+
+Run the testbench standalone (without Kubernetes / Testkube) on any system:
+
+```shell
+pip install agentic-layer-testbench
+testbench config.yaml
+```
+
+See [`config.example.yaml`](./config.example.yaml) for the available configuration options.
+
 ## Prerequisites
 
 - **Python 3.12+** and [uv](https://docs.astral.sh/uv/)

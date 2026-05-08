@@ -17,9 +17,10 @@ import logging
 import httpx
 from opentelemetry import context as context_api
 from opentelemetry import trace
-from otel_setup import setup_otel
-from schema.a2a_client import A2AStepClient
-from schema.models import (
+
+from testbench.otel_setup import setup_otel
+from testbench.schema.a2a_client import A2AStepClient
+from testbench.schema.models import (
     ExecutedExperiment,
     ExecutedScenario,
     ExecutedStep,
@@ -27,7 +28,7 @@ from schema.models import (
     Scenario,
     Step,
 )
-from schema.runtime import ExperimentRuntime
+from testbench.schema.runtime import ExperimentRuntime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

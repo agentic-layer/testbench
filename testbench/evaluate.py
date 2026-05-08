@@ -16,8 +16,8 @@ import asyncio
 import logging
 from typing import Literal
 
-from metrics import GenericMetricsRegistry, MetricResult
-from schema.models import (
+from testbench.metrics import GenericMetricsRegistry, MetricResult
+from testbench.schema.models import (
     EvaluatedExperiment,
     EvaluatedStep,
     Evaluation,
@@ -29,7 +29,7 @@ from schema.models import (
     Result,
     Scenario,
 )
-from schema.runtime import ExperimentRuntime
+from testbench.schema.runtime import ExperimentRuntime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

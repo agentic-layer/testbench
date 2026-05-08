@@ -23,14 +23,14 @@ from logging import Logger
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from schema.models import (
+from testbench.schema.models import (
     EvaluatedExperiment,
     EvaluatedScenario,
     EvaluatedStep,
     Experiment,
     Scenario,
 )
-from schema.runtime import ExperimentRuntime
+from testbench.schema.runtime import ExperimentRuntime
 
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)

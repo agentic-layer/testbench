@@ -5,7 +5,9 @@ setup -> run -> evaluate -> [publish] -> visualize.
 
 Usage::
 
-    python3 testbench/testworkflow.py config.yaml
+    testbench config.yaml
+    # or
+    python3 -m testbench.testworkflow config.yaml
 """
 
 from __future__ import annotations
@@ -19,18 +21,19 @@ import time
 import uuid
 
 import yaml
-from evaluate import main as evaluate_main
-from publish import publish_metrics
-from run import main as run_main
-from schema.config import PipelineConfig
-from schema.models import EvaluatedExperiment
-from setup import (
+
+from testbench.evaluate import main as evaluate_main
+from testbench.publish import publish_metrics
+from testbench.run import main as run_main
+from testbench.schema.config import PipelineConfig
+from testbench.schema.models import EvaluatedExperiment
+from testbench.setup import (
     load_experiment_from_file,
     load_experiment_from_s3,
     load_experiment_from_url,
     save_experiment,
 )
-from visualize import main as visualize_main
+from testbench.visualize import main as visualize_main
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -178,7 +181,7 @@ def run_pipeline(config_path: str) -> None:
     logger.info("[pipeline] Pipeline completed successfully")
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = argparse.ArgumentParser(description="Run the testbench evaluation pipeline without Kubernetes or Testkube")
     parser.add_argument(
         "config",
@@ -187,3 +190,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run_pipeline(args.config)
+
+
+if __name__ == "__main__":
+    main()

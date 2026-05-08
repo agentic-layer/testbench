@@ -8,7 +8,8 @@ import json
 import math
 
 import pytest
-from visualize import (
+
+from testbench.visualize import (
     VisualizationData,
     _format_multi_turn_conversation,
     _get_score_class,

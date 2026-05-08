@@ -21,7 +21,8 @@ from typing import Any
 import boto3
 from botocore.client import Config
 from pydantic import ValidationError
-from schema.models import Experiment
+
+from testbench.schema.models import Experiment
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

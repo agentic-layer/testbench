@@ -47,38 +47,10 @@ class E2ETestRunner:
         self.experiment_name = experiment_name
         self.otlp_endpoint = otlp_endpoint
 
-        # Define script paths
-        self.scripts_dir = Path(__file__).parent.parent / "scripts"
-        self.setup_script = self.scripts_dir / "setup.py"
-        self.run_script = self.scripts_dir / "run.py"
-        self.evaluate_script = self.scripts_dir / "evaluate.py"
-        self.publish_script = self.scripts_dir / "publish.py"
-
         # Define expected output files
         self.dataset_file = Path("./data/datasets/experiment.json")
         self.executed_file = Path("./data/experiments/executed_experiment.json")
         self.evaluated_file = Path("./data/experiments/evaluated_experiment.json")
-
-    def verify_scripts_exist(self) -> bool:
-        """Verify that all required scripts exist."""
-        logger.info("Verifying all scripts exist...")
-        scripts = [
-            self.setup_script,
-            self.run_script,
-            self.evaluate_script,
-            self.publish_script,
-        ]
-
-        missing_scripts = [script for script in scripts if not script.exists()]
-
-        if missing_scripts:
-            logger.error("Missing scripts:")
-            for script in missing_scripts:
-                logger.error(f"  - {script}")
-            return False
-
-        logger.info("All scripts found")
-        return True
 
     def run_command(self, command: List[str], step_name: str, env: dict | None = None) -> bool:
         """
@@ -138,7 +110,7 @@ class E2ETestRunner:
 
     def run_setup(self) -> bool:
         """Run setup.py to download dataset from S3/MinIO and convert."""
-        command = ["python3", str(self.setup_script), self.s3_bucket, self.s3_key]
+        command = ["python3", "-m", "testbench.setup", self.s3_bucket, self.s3_key]
         success = self.run_command(command, "1. Setup - Download Dataset from S3")
 
         if success:
@@ -147,7 +119,7 @@ class E2ETestRunner:
 
     def run_agent_queries(self) -> bool:
         """Run run.py to execute agent queries on the dataset."""
-        command = ["python3", str(self.run_script), self.agent_url, self.experiment_name]
+        command = ["python3", "-m", "testbench.run", self.agent_url, self.experiment_name]
         success = self.run_command(command, "2. Run - Execute Agent Queries")
 
         if success:
@@ -156,7 +128,7 @@ class E2ETestRunner:
 
     def run_evaluation(self) -> bool:
         """Run evaluate.py to evaluate results using metrics."""
-        command = ["python3", str(self.evaluate_script), "--model", self.model]
+        command = ["python3", "-m", "testbench.evaluate", "--model", self.model]
         success = self.run_command(command, "3. Evaluate - Calculate Metrics")
 
         if success:
@@ -170,7 +142,8 @@ class E2ETestRunner:
 
         command = [
             "python3",
-            str(self.publish_script),
+            "-m",
+            "testbench.publish",
             self.experiment_name,
             "e2e-test-exec",  # execution_id
             "1",  # execution_number
@@ -182,10 +155,6 @@ class E2ETestRunner:
         logger.info("\n" + "=" * 60)
         logger.info("Starting E2E Test Pipeline")
         logger.info("=" * 60 + "\n")
-
-        if not self.verify_scripts_exist():
-            logger.error("Cannot proceed - missing required scripts")
-            return False
 
         steps = [
             ("Setup", self.run_setup),

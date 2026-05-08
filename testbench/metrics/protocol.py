@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from schema.models import ExecutedStep
+from testbench.schema.models import ExecutedStep
 
 
 @dataclass

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from metrics.adapter import FrameworkAdapter
-from metrics.protocol import MetricCallable
+from testbench.metrics.adapter import FrameworkAdapter
+from testbench.metrics.protocol import MetricCallable
 
 
 class GenericMetricsRegistry:
@@ -67,7 +67,7 @@ class GenericMetricsRegistry:
     @classmethod
     def create_default(cls) -> GenericMetricsRegistry:
         """Create a registry with the RAGAS adapter pre-registered."""
-        from metrics.ragas.adapter import RagasFrameworkAdapter
+        from testbench.metrics.ragas.adapter import RagasFrameworkAdapter
 
         registry = cls()
         registry.register_adapter(RagasFrameworkAdapter())

@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from metrics.protocol import MetricCallable
+from testbench.metrics.protocol import MetricCallable
 
 
 class FrameworkAdapter(ABC):

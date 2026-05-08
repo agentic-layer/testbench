@@ -117,7 +117,7 @@ jobs:
           OPENAI_BASE_URL: "http://localhost:11001"
           OPENAI_API_KEY: "not used"
           OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4318"
-        run: uv run python3 testbench/testworkflow.py .github/workflows/experiment/config.yaml
+        run: uv run testbench .github/workflows/experiment/config.yaml
 
       - name: Upload evaluation report
         if: always()

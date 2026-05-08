@@ -13,7 +13,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from setup import (
+
+from testbench.setup import (
     EXPERIMENT_OUTPUT_PATH,
     load_experiment_from_file,
     load_experiment_from_s3,
@@ -95,7 +96,7 @@ class TestLoadExperimentFromUrl:
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("setup.urllib.request.urlopen", return_value=mock_response):
+        with patch("testbench.setup.urllib.request.urlopen", return_value=mock_response):
             experiment = load_experiment_from_url("https://example.com/exp.json")
             assert experiment.scenarios[0].name == "scenario-1"
 
@@ -106,7 +107,7 @@ class TestLoadExperimentFromUrl:
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("setup.urllib.request.urlopen", return_value=mock_response):
+        with patch("testbench.setup.urllib.request.urlopen", return_value=mock_response):
             experiment = load_experiment_from_url("https://example.com/exp.json?token=abc")
             assert experiment.scenarios[0].steps[0].input == "What is AI?"
 
@@ -133,7 +134,7 @@ class TestLoadExperimentFromS3:
             def get_object(self, Bucket, Key):  # noqa: N803
                 return {"Body": BytesIO(content)}
 
-        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        monkeypatch.setattr("testbench.setup.create_s3_client", lambda: MockS3Client())
         experiment = load_experiment_from_s3("bucket", "exp.json")
         assert experiment.scenarios[0].name == "scenario-1"
 
@@ -142,7 +143,7 @@ class TestLoadExperimentFromS3:
             def get_object(self, Bucket, Key):  # noqa: N803
                 raise Exception("NoSuchKey")
 
-        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        monkeypatch.setattr("testbench.setup.create_s3_client", lambda: MockS3Client())
         with pytest.raises(Exception, match="NoSuchKey"):
             load_experiment_from_s3("bucket", "missing.json")
 
@@ -155,7 +156,7 @@ class TestMain:
             def get_object(self, Bucket, Key):  # noqa: N803
                 return {"Body": BytesIO(content)}
 
-        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        monkeypatch.setattr("testbench.setup.create_s3_client", lambda: MockS3Client())
         main("test-bucket", "data.json")
         assert EXPERIMENT_OUTPUT_PATH.exists()
         saved = json.loads(EXPERIMENT_OUTPUT_PATH.read_text())
@@ -166,7 +167,7 @@ class TestMain:
             def get_object(self, Bucket, Key):  # noqa: N803
                 raise Exception("NoSuchKey: The specified key does not exist")
 
-        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        monkeypatch.setattr("testbench.setup.create_s3_client", lambda: MockS3Client())
         with pytest.raises(Exception, match="NoSuchKey"):
             main("test-bucket", "nonexistent.json")
 
@@ -175,7 +176,7 @@ class TestMain:
             def get_object(self, Bucket, Key):  # noqa: N803
                 return {"Body": BytesIO(b"foo,bar")}
 
-        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        monkeypatch.setattr("testbench.setup.create_s3_client", lambda: MockS3Client())
         with pytest.raises(ValueError, match="Unsupported"):
             main("test-bucket", "data.csv")
 
@@ -186,6 +187,6 @@ class TestMain:
             def get_object(self, Bucket, Key):  # noqa: N803
                 return {"Body": BytesIO(bad)}
 
-        monkeypatch.setattr("setup.create_s3_client", lambda: MockS3Client())
+        monkeypatch.setattr("testbench.setup.create_s3_client", lambda: MockS3Client())
         with pytest.raises(ValueError, match="validation failed"):
             main("test-bucket", "data.json")

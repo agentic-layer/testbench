@@ -5,14 +5,15 @@ import logging
 from typing import Any, Union
 
 import ragas.metrics.collections as metrics_module
-from metrics.adapter import FrameworkAdapter
-from metrics.protocol import MetricCallable, MetricResult
 from openai import AsyncOpenAI
 from ragas.llms import llm_factory
 from ragas.messages import AIMessage, HumanMessage, ToolMessage
 from ragas.messages import ToolCall as RagasToolCall
 from ragas.metrics.collections import BaseMetric
-from schema.models import ExecutedStep, ToolCall, Turn
+
+from testbench.metrics.adapter import FrameworkAdapter
+from testbench.metrics.protocol import MetricCallable, MetricResult
+from testbench.schema.models import ExecutedStep, ToolCall, Turn
 
 logger = logging.getLogger(__name__)
 

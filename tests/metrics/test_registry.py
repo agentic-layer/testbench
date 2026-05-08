@@ -3,7 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from metrics.registry import GenericMetricsRegistry
+
+from testbench.metrics.registry import GenericMetricsRegistry
 
 # ── GenericMetricsRegistry tests ─────────────────────────────────────────
 

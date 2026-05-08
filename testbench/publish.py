@@ -23,13 +23,14 @@ from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExp
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
-from schema.models import (
+
+from testbench.schema.models import (
     EvaluatedExperiment,
     EvaluatedScenario,
     EvaluatedStep,
     Scenario,
 )
-from schema.runtime import ExperimentRuntime
+from testbench.schema.runtime import ExperimentRuntime
 
 # Set up module-level logger
 logging.basicConfig(level=logging.INFO)

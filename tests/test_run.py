@@ -8,9 +8,10 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from run import A2AExecutor, _content_hash, main
-from schema.a2a_client import A2AStepResult
-from schema.models import (
+
+from testbench.run import A2AExecutor, _content_hash, main
+from testbench.schema.a2a_client import A2AStepResult
+from testbench.schema.models import (
     ExecutedExperiment,
     ExecutedScenario,
     ExecutedStep,
@@ -365,7 +366,7 @@ async def test_executor_run_full_flow(tmp_path):
         mock_span.get_span_context.return_value = mock_span_context
         mock_span_factory.return_value = mock_span
 
-        with patch("run.A2AStepClient") as mock_a2a_step_client:
+        with patch("testbench.run.A2AStepClient") as mock_a2a_step_client:
             mock_client_instance = AsyncMock()
             mock_client_instance.send_step = mock_send_step
             mock_a2a_step_client.return_value = mock_client_instance
@@ -445,7 +446,7 @@ async def test_executor_run_with_error_handling(tmp_path):
         mock_span.get_span_context.return_value = mock_span_context
         mock_span_factory.return_value = mock_span
 
-        with patch("run.A2AStepClient") as mock_a2a_step_client:
+        with patch("testbench.run.A2AStepClient") as mock_a2a_step_client:
             mock_client_instance = AsyncMock()
             mock_client_instance.send_step = mock_send_step_error
             mock_a2a_step_client.return_value = mock_client_instance
@@ -481,9 +482,9 @@ async def test_main_creates_executor_and_runs(tmp_path):
     input_path.write_text(json.dumps(experiment_data))
 
     # Mock setup_otel
-    with patch("run.setup_otel"):
+    with patch("testbench.run.setup_otel"):
         # Mock A2AExecutor.run
-        with patch("run.A2AExecutor.run") as mock_run:
+        with patch("testbench.run.A2AExecutor.run") as mock_run:
             mock_result = ExecutedExperiment(scenarios=[])
             mock_run.return_value = mock_result
 
@@ -511,14 +512,14 @@ async def test_main_default_output_path(tmp_path):
         context_id="ctx-1",
     )
 
-    with patch("run.setup_otel"):
-        with patch("run.A2AStepClient") as mock_a2a_step_client:
+    with patch("testbench.run.setup_otel"):
+        with patch("testbench.run.A2AStepClient") as mock_a2a_step_client:
             mock_client_instance = AsyncMock()
             mock_client_instance.send_step = AsyncMock(return_value=mock_result)
             mock_a2a_step_client.return_value = mock_client_instance
 
             # Mock tracer
-            with patch("run.trace.get_tracer") as mock_get_tracer:
+            with patch("testbench.run.trace.get_tracer") as mock_get_tracer:
                 mock_tracer = MagicMock()
                 mock_span = MagicMock()
                 mock_span_context = MagicMock()
@@ -574,9 +575,9 @@ async def test_main_integration_with_cli_args(tmp_path):
     try:
         os.chdir(tmp_path)
 
-        with patch("run.setup_otel"):
+        with patch("testbench.run.setup_otel"):
             # Mock tracer at import time before A2AExecutor is created
-            with patch("run.trace.get_tracer") as mock_get_tracer:
+            with patch("testbench.run.trace.get_tracer") as mock_get_tracer:
                 mock_tracer = MagicMock()
                 mock_span = MagicMock()
                 mock_span_context = MagicMock()
@@ -585,7 +586,7 @@ async def test_main_integration_with_cli_args(tmp_path):
                 mock_tracer.start_span.return_value = mock_span
                 mock_get_tracer.return_value = mock_tracer
 
-                with patch("run.A2AStepClient") as mock_a2a_step_client:
+                with patch("testbench.run.A2AStepClient") as mock_a2a_step_client:
                     mock_client_instance = AsyncMock()
                     mock_client_instance.send_step = AsyncMock(return_value=mock_result)
                     mock_a2a_step_client.return_value = mock_client_instance

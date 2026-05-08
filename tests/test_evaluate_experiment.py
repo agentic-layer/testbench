@@ -5,8 +5,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from evaluate import MetricEvaluator, main  # noqa: E402
-from schema.models import (  # noqa: E402
+
+from testbench.evaluate import MetricEvaluator, main  # noqa: E402
+from testbench.schema.models import (  # noqa: E402
     EvaluatedExperiment,
     EvaluatedStep,
     ExecutedStep,
@@ -78,7 +79,7 @@ def _metric(name: str = "faithfulness", threshold: float | None = None, paramete
 
 def _mock_metric_callable(score: float = 0.85) -> AsyncMock:
     """Return an AsyncMock that behaves like a MetricCallable."""
-    from metrics.protocol import MetricResult
+    from testbench.metrics.protocol import MetricResult
 
     mock = AsyncMock()
     mock.return_value = MetricResult(score=score)
@@ -310,7 +311,7 @@ async def test_main_reads_and_writes_json(tmp_path: Path) -> None:
 
     mock_callable = _mock_metric_callable(0.95)
 
-    with patch("evaluate.GenericMetricsRegistry.create_default") as mock_registry_cls:
+    with patch("testbench.evaluate.GenericMetricsRegistry.create_default") as mock_registry_cls:
         mock_registry = MagicMock()
         mock_registry.get_metric_callable.return_value = mock_callable
         mock_registry_cls.return_value = mock_registry
@@ -333,7 +334,7 @@ async def test_evaluate_step_multiple_metrics(tmp_path: Path) -> None:
     scores = iter([0.9, 0.7])
 
     async def mock_call(sample: object, **kwargs: object) -> object:
-        from metrics.protocol import MetricResult
+        from testbench.metrics.protocol import MetricResult
 
         return MetricResult(score=next(scores))
 

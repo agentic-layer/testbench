@@ -3,7 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from schema.a2a_client import A2AStepClient, A2AStepResult, initialize_client
+
+from testbench.schema.a2a_client import A2AStepClient, A2AStepResult, initialize_client
 
 # ---------------------------------------------------------------------------
 # initialize_client
@@ -19,8 +20,8 @@ async def test_initialize_client_creates_client():
     mock_factory.create.return_value = mock_client
 
     with (
-        patch("schema.a2a_client.minimal_agent_card", return_value=mock_card),
-        patch("schema.a2a_client.ClientFactory", return_value=mock_factory),
+        patch("testbench.schema.a2a_client.minimal_agent_card", return_value=mock_card),
+        patch("testbench.schema.a2a_client.ClientFactory", return_value=mock_factory),
     ):
         result = await initialize_client("http://agent:8000", MagicMock())
 
@@ -114,7 +115,7 @@ async def test_send_step_text_only_history():
     mock_a2a = MagicMock()
     mock_a2a.send_message.return_value = _mock_send_message_from_tasks([task])
 
-    with patch("schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
+    with patch("testbench.schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
         client = A2AStepClient("http://agent:8000", MagicMock())
         result = await client.send_step("Hello")
 
@@ -151,7 +152,7 @@ async def test_send_step_tool_calls_metadata():
     mock_a2a = MagicMock()
     mock_a2a.send_message.return_value = _mock_send_message_from_tasks([task])
 
-    with patch("schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
+    with patch("testbench.schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
         client = A2AStepClient("http://agent:8000", MagicMock())
         result = await client.send_step("weather?")
 
@@ -189,7 +190,7 @@ async def test_send_step_tool_calls_datapart():
     mock_a2a = MagicMock()
     mock_a2a.send_message.return_value = _mock_send_message_from_tasks([task])
 
-    with patch("schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
+    with patch("testbench.schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
         client = A2AStepClient("http://agent:8000", MagicMock())
         result = await client.send_step("temp?")
 
@@ -217,7 +218,7 @@ async def test_send_step_artifact_fallback():
     mock_a2a = MagicMock()
     mock_a2a.send_message.return_value = _mock_send_message_from_tasks([task])
 
-    with patch("schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
+    with patch("testbench.schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
         client = A2AStepClient("http://agent:8000", MagicMock())
         result = await client.send_step("hello")
 
@@ -243,7 +244,7 @@ async def test_send_step_error_handling():
     mock_a2a = MagicMock()
     mock_a2a.send_message.side_effect = _raise
 
-    with patch("schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
+    with patch("testbench.schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
         client = A2AStepClient("http://agent:8000", MagicMock())
         result = await client.send_step("hi")
 
@@ -268,7 +269,7 @@ async def test_send_step_preserves_existing_context_id():
     mock_a2a = MagicMock()
     mock_a2a.send_message.return_value = _mock_send_message_from_tasks([task])
 
-    with patch("schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
+    with patch("testbench.schema.a2a_client.initialize_client", new_callable=AsyncMock, return_value=mock_a2a):
         client = A2AStepClient("http://agent:8000", MagicMock())
         result = await client.send_step("follow-up", context_id="ctx-existing")
 

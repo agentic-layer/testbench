@@ -28,12 +28,18 @@ go.work
 
 .env
 
-scripts/data/*
+testbench/data/*
+data/
 
 # Python cache files
 __pycache__/
 *.pyc
 *.pyo
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
 
 # oh-my-claudecode state
 .omc

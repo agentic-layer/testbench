@@ -1,6 +1,7 @@
 import pytest
 import yaml
-from schema.config import PipelineConfig
+
+from testbench.schema.config import PipelineConfig
 
 
 class TestPipelineConfigUrlSource:

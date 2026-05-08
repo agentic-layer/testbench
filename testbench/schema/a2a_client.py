@@ -13,7 +13,8 @@ import httpx
 from a2a.client.client import Client, ClientConfig
 from a2a.client.client_factory import ClientFactory, minimal_agent_card
 from a2a.types import AgentCard, Message, Part, Role, TextPart
-from schema.models import ToolCall, Turn
+
+from testbench.schema.models import ToolCall, Turn
 
 logger = logging.getLogger(__name__)
 

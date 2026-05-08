@@ -8,13 +8,14 @@ import math
 from pathlib import Path
 
 import pytest
-from publish import (
+
+from testbench.publish import (
     MetricsPublisher,
     _get_user_input_truncated,
     _is_metric_value,
     publish_metrics,
 )
-from schema.models import (
+from testbench.schema.models import (
     EvaluatedExperiment,
     EvaluatedScenario,
 )
@@ -190,9 +191,9 @@ def _mock_otel(monkeypatch):
         exporter_calls.append({"endpoint": endpoint})
         return MockExporter()
 
-    monkeypatch.setattr("publish.metrics.get_meter", mock_get_meter)
-    monkeypatch.setattr("publish.MeterProvider", mock_provider_init)
-    monkeypatch.setattr("publish.OTLPMetricExporter", mock_exporter_init)
+    monkeypatch.setattr("testbench.publish.metrics.get_meter", mock_get_meter)
+    monkeypatch.setattr("testbench.publish.MeterProvider", mock_provider_init)
+    monkeypatch.setattr("testbench.publish.OTLPMetricExporter", mock_exporter_init)
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     return create_gauge_calls, set_calls, force_flush_calls, shutdown_calls, exporter_calls
@@ -214,7 +215,7 @@ async def test_skips_publishing_when_endpoint_not_set(tmp_path, monkeypatch):
         exporter_calls.append({"endpoint": endpoint})
         return MockExporter()
 
-    monkeypatch.setattr("publish.OTLPMetricExporter", mock_exporter_init)
+    monkeypatch.setattr("testbench.publish.OTLPMetricExporter", mock_exporter_init)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
 
     experiment = _make_evaluated_experiment()
@@ -352,9 +353,9 @@ async def test_handles_push_error(tmp_path, monkeypatch):
         _preferred_temporality = {}
         _preferred_aggregation = {}
 
-    monkeypatch.setattr("publish.metrics.get_meter", mock_get_meter)
-    monkeypatch.setattr("publish.MeterProvider", mock_provider_init)
-    monkeypatch.setattr("publish.OTLPMetricExporter", lambda endpoint: MockExporter())
+    monkeypatch.setattr("testbench.publish.metrics.get_meter", mock_get_meter)
+    monkeypatch.setattr("testbench.publish.MeterProvider", mock_provider_init)
+    monkeypatch.setattr("testbench.publish.OTLPMetricExporter", lambda endpoint: MockExporter())
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4318")
 
     experiment = _make_evaluated_experiment()

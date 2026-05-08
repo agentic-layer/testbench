@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Generic, TypeVar, get_args
 
-from schema.models import Experiment, Scenario, Step
+from testbench.schema.models import Experiment, Scenario, Step
 
 # ---------------------------------------------------------------------------
 # Type variables
