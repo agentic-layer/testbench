@@ -3,3 +3,7 @@
 Testbench is the Kubernetes-native agent evaluation system for the Agentic Layer. It executes prompt suites against deployed agents using the A2A protocol, scores responses through LLM-as-a-judge metrics (RAGAS by default), and publishes evaluation scores to your observability stack via OTLP. Each evaluation run is orchestrated by Testkube as a sequence of reusable `TestWorkflowTemplate` steps — Setup, Run, Evaluate, Publish, and Visualize — sharing data over a common volume.
 
 To get started, xref:testbench::how-to-guides/install.adoc[Install the Testbench] into your cluster, then follow xref:testbench::how-to-guides/first-workflow.adoc[Create Your First TestWorkflow] to define an experiment and run it against an agent. For the deeper architectural view of how the pipeline and data models fit together, see xref:testbench:architecture:index.adoc[architecture].
+
+== Pages
+
+include::partial$nav.adoc[]
