@@ -7,11 +7,13 @@ operator image.
 
 ## Usage
 
-1. Download the released `install.yaml` into this directory:
+1. Download the released `install.yaml` into this directory
+   (always pulls the latest release; see
+   https://github.com/agentic-layer/testbench/releases for the version list):
 
    ```sh
    curl -L -o install.yaml \
-     https://github.com/agentic-layer/testbench/releases/download/v0.1.0/install.yaml
+     https://github.com/agentic-layer/testbench/releases/latest/download/install.yaml
    ```
 
 2. Edit `kustomization.yaml`:

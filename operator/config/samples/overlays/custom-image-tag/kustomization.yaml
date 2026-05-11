@@ -6,7 +6,8 @@ kind: Kustomization
 # `install.yaml`, e.g.:
 #
 #   curl -L -o install.yaml \
-#     https://github.com/agentic-layer/testbench/releases/download/v0.1.0/install.yaml
+#     https://github.com/agentic-layer/testbench/releases/latest/download/install.yaml
+#   # Browse releases at https://github.com/agentic-layer/testbench/releases
 #
 #   resources:
 #     - install.yaml

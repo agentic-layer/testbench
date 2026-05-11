@@ -22,10 +22,10 @@ Install everything (operator + TestWorkflowTemplates + Grafana dashboard ConfigM
 
 [source,shell]
 ----
-kubectl apply -f https://github.com/agentic-layer/testbench/releases/download/<version>/install.yaml
+kubectl apply -f https://github.com/agentic-layer/testbench/releases/latest/download/install.yaml
 ----
 
-Replace `<version>` with the release tag you want, for example `v0.1.0`.
+This always pulls the latest release. Browse all releases at https://github.com/agentic-layer/testbench/releases.
 
 The installer creates:
 
@@ -48,7 +48,7 @@ The pattern: download the released `install.yaml` into an overlay directory, the
 [source,shell]
 ----
 curl -L -o install.yaml \
-  https://github.com/agentic-layer/testbench/releases/download/<version>/install.yaml
+  https://github.com/agentic-layer/testbench/releases/latest/download/install.yaml
 ----
 
 [source,yaml]
@@ -117,7 +117,7 @@ The Helm chart at `oci://ghcr.io/agentic-layer/charts/testbench` is no longer pu
 [source,shell]
 ----
 helm uninstall testbench -n testkube
-kubectl apply -f https://github.com/agentic-layer/testbench/releases/download/<version>/install.yaml
+kubectl apply -f https://github.com/agentic-layer/testbench/releases/latest/download/install.yaml
 ----
 
 In-flight TestWorkflows are interrupted by the uninstall. Run the migration during a maintenance window if that matters.
