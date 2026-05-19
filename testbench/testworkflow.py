@@ -5,7 +5,7 @@ setup -> run -> evaluate -> [publish] -> visualize.
 
 Usage::
 
-    testbench config.yaml
+    testworkflow config.yaml
     # or
     python3 -m testbench.testworkflow config.yaml
 """

@@ -10,7 +10,7 @@ For evaluating an agent without deploying into Kubernetes / Testkube:
 
 ```shell
 pip install agentic-layer-testbench
-testbench config.yaml
+testworkflow config.yaml
 ```
 
 See [`config.example.yaml`](./config.example.yaml) for the available configuration options.

@@ -1,5 +1,5 @@
 # Pipeline Configuration
-# Run with: uv run testbench config.yaml
+# Run with: uv run testworkflow config.yaml
 
 # Dataset source — how to acquire the Experiment JSON file
 # All sources require a serialized Experiment JSON (not CSV or Parquet)
