@@ -3,3 +3,15 @@ global:
     createOfficialTemplates: false
 cronJobs:
   enabled: true
+
+mongodb:
+  enabled: false
+
+postgresql:
+  enabled: true
+
+testkube-api:
+  mongodb:
+    enabled: false
+  postgresql:
+    enabled: true

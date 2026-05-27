@@ -5,4 +5,6 @@ resources:
   - otel-config.yaml
   - otel-config-agent.yaml
   - weather-agent.yaml
+  - tool-gateway.yaml
+  - weather-mcp-server.yaml
   - example-experiment.yaml

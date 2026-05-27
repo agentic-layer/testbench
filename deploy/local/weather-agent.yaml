@@ -13,10 +13,25 @@ metadata:
   namespace: sample-agents
 spec:
   framework: google-adk
-  image: ghcr.io/agentic-layer/weather-agent:0.6.4
+  description: "Agent to answer questions about the time and weather in a city."
+  instruction: |-
+    You are a helpful agent who can answer user questions about the time and weather in a city.
+  model: "gemini/gemini-2.5-flash"
+  aiGatewayRef:
+    name: ai-gateway
+    namespace: ai-gateway
+  tools:
+    - name: weather-mcp-server
+      upstream:
+        toolRouteRef:
+          name: weather-mcp-server
   protocols:
     - type: A2A
+      name: a2a-8000
   exposed: true
+  env:
+    - name: OTEL_SERVICE_NAME
+      value: "weather-agent"
   envFrom:
     - configMapRef:
         name: otel-config

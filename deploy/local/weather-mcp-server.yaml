@@ -1,0 +1,33 @@
+apiVersion: runtime.agentic-layer.ai/v1alpha1
+kind: ToolServer
+metadata:
+  name: weather-mcp-server
+  namespace: sample-agents
+spec:
+  protocol: mcp
+  transportType: http
+  image: ghcr.io/agentic-layer/weather-mcp-server:0.7.0
+  args:
+    - "weather.py"
+  port: 8000
+  replicas: 1
+  env:
+    - name: OTEL_SERVICE_NAME
+      value: weather-mcp-server
+  envFrom:
+    - configMapRef:
+        name: otel-config
+        optional: true
+---
+apiVersion: runtime.agentic-layer.ai/v1alpha1
+kind: ToolRoute
+metadata:
+  name: weather-mcp-server
+  namespace: sample-agents
+spec:
+  toolGatewayRef:
+    name: tool-gateway
+    namespace: tool-gateway
+  upstream:
+    toolServerRef:
+      name: weather-mcp-server
