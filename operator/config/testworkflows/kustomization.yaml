@@ -10,8 +10,3 @@ resources:
 
 configurations:
 - kustomizeconfig.yaml
-
-images:
-- name: ghcr.io/agentic-layer/testbench/testworkflows
-  newName: ghcr.io/agentic-layer/testbench/testworkflows
-  newTag: 0.0.1

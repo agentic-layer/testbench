@@ -22,7 +22,8 @@ spec:
         paths:
           - "data/experiments/executed_experiment.json"
       run:
-        image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
+        image: ghcr.io/agentic-layer/testbench/testworkflows:latest
+        imagePullPolicy: IfNotPresent
         args:
           - -m
           - testbench.run

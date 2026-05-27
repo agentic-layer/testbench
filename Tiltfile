@@ -25,6 +25,10 @@ v1alpha1.extension(name='agent-gateway-krakend', repo_name='agentic-layer', repo
 load('ext://agent-gateway-krakend', 'agent_gateway_krakend_install')
 agent_gateway_krakend_install(version='0.7.0')
 
+v1alpha1.extension(name='tool-gateway-agentgateway', repo_name='agentic-layer', repo_path='tool-gateway-agentgateway')
+load('ext://tool-gateway-agentgateway', 'tool_gateway_agentgateway_install')
+tool_gateway_agentgateway_install(version='0.5.0', instance=False)
+
 # Pre-create testkube namespace to avoid race condition with kustomize resources
 k8s_yaml(blob('''
 apiVersion: v1
@@ -38,7 +42,7 @@ helm_resource(
     'testkube',
     'oci://docker.io/kubeshop/testkube',
     namespace='testkube',
-    flags=['--version=2.5.3', '--values=deploy/local/testkube/values.yaml', '--wait',
+    flags=['--version=2.9.3', '--values=deploy/local/testkube/values.yaml', '--wait',
     '--wait-for-jobs', '--timeout=10m'],
 )
 
@@ -49,6 +53,18 @@ docker_build(
     dockerfile='operator/Dockerfile',
 )
 
+# Build the testworkflows image locally and tag it as :latest so the templates'
+# IfNotPresent kubelet check finds it in the runtime's image store. Tilt does
+# NOT rewrite the templates' image refs because Testkube's API server resolves
+# the image manifest from the remote registry before scheduling the pod — so
+# the tag must match a real published tag (which :latest does).
+local_resource(
+    'testworkflows-image',
+    cmd='docker build -t ghcr.io/agentic-layer/testbench/testworkflows:latest .',
+    deps=['testbench', 'Dockerfile', 'pyproject.toml', 'uv.lock'],
+    labels=['testbench'],
+)
+
 # Deploy the unified testbench install: operator + testworkflow templates + dashboard ConfigMap.
 k8s_yaml(kustomize('operator/config/default'))
 
@@ -57,6 +73,9 @@ k8s_yaml(kustomize('deploy/local'))
 
 k8s_resource('ai-gateway', port_forwards=['11001:4000'])
 k8s_resource('weather-agent', port_forwards='11010:8000', labels=['agents'], resource_deps=['agent-runtime'])
+k8s_resource('tool-gateway', labels=['agentic-layer'], resource_deps=['agent-runtime'], port_forwards='11005:80')
+k8s_resource('weather-mcp-server:toolserver', port_forwards='11020:8000', labels=['agents'], resource_deps=['agent-runtime'])
+k8s_resource('weather-mcp-server:toolroute', labels=['agents'], resource_deps=['agent-runtime', 'weather-mcp-server:toolserver'])
 k8s_resource('lgtm', port_forwards=['11000:3000', '4318:4318'])
 
 # Declare Testkube resources

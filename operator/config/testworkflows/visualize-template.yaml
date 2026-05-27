@@ -19,7 +19,8 @@ spec:
         paths:
           - "data/results/evaluation_report.html"
       run:
-        image: ghcr.io/agentic-layer/testbench/testworkflows:0.0.1
+        image: ghcr.io/agentic-layer/testbench/testworkflows:latest
+        imagePullPolicy: IfNotPresent
         args:
           - -m
           - testbench.visualize
