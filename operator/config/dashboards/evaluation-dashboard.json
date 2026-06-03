@@ -382,6 +382,22 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Executed At"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.width",
+                "value": 200
+              }
+            ]
           }
         ]
       },
@@ -399,7 +415,7 @@
         "sortBy": [
           {
             "desc": true,
-            "displayName": "Time"
+            "displayName": "Executed At"
           }
         ]
       },
@@ -446,6 +462,20 @@
           "legendFormat": "Failed",
           "range": false,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "max by(execution_id, execution_number) (last_over_time(timestamp(testbench_evaluation_metric{experiment_name=~\"$workflow\", scenario_name=~\"$scenario\", name=~\"$metric\"})[$__range:15s])) * 1000",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "Executed At",
+          "range": false,
+          "refId": "D"
         }
       ],
       "title": "Recent Executions",
@@ -458,20 +488,22 @@
           "id": "organize",
           "options": {
             "excludeByName": {
+              "Time": true,
               "__name__": true
             },
             "indexByName": {
-              "Time": 2,
               "Value #A": 3,
               "Value #B": 4,
               "Value #C": 5,
+              "Value #D": 2,
               "execution_id": 0,
               "execution_number": 1
             },
             "renameByName": {
               "Value #A": "Avg Score",
               "Value #B": "Passed",
-              "Value #C": "Failed"
+              "Value #C": "Failed",
+              "Value #D": "Executed At"
             }
           }
         }
@@ -583,6 +615,7 @@
       }
     ]
   },
+  "refresh": "30s",
   "time": {
     "from": "now-7d",
     "to": "now"
