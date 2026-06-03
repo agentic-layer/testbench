@@ -22,7 +22,7 @@ dataset:
 
 # Agent to evaluate — must expose A2A protocol endpoint
 agent:
-  url: "http://host.docker.internal:11010"
+  url: "http://localhost:11010"
 
 # Experiment metadata
 experiment:

@@ -143,7 +143,6 @@ def _extract_turns_from_history(history: list[Any], turns: list[Turn]) -> str:
                     and actual_part.kind == "data"
                     and hasattr(actual_part, "data")
                     and isinstance(actual_part.data, dict)
-                    and "name" in actual_part.data
                 ):
                     if "args" in actual_part.data and "response" not in actual_part.data:
                         tool_calls_in_msg.append(

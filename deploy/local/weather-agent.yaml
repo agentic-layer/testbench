@@ -12,7 +12,6 @@ metadata:
   name: weather-agent
   namespace: sample-agents
 spec:
-  framework: google-adk
   description: "Agent to answer questions about the time and weather in a city."
   instruction: |-
     You are a helpful agent who can answer user questions about the time and weather in a city.
