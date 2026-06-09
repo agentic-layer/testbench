@@ -628,6 +628,22 @@ func (r *ExperimentReconciler) buildTestTrigger(experiment *testbenchv1alpha1.Ex
 					"namespace": testkubeNamespace,
 				},
 				"disabled": false,
+				"conditionSpec": map[string]interface{}{
+					"timeout": int64(100),
+					"delay":   int64(2),
+					"conditions": []interface{}{
+						map[string]interface{}{
+							"type":   "Progressing",
+							"status": "True",
+							"reason": "NewReplicaSetAvailable",
+							"ttl":    int64(60),
+						},
+						map[string]interface{}{
+							"type":   "Available",
+							"status": "True",
+						},
+					},
+				},
 			},
 		},
 	}

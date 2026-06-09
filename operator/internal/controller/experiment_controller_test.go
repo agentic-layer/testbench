@@ -422,6 +422,22 @@ var _ = Describe("Experiment Controller", func() {
 			testSelector := spec["testSelector"].(map[string]interface{})
 			Expect(testSelector["name"]).To(Equal(resourceName(expName, namespace, "workflow")))
 			Expect(testSelector["namespace"]).To(Equal(testkubeNamespace))
+
+			conditionSpec := spec["conditionSpec"].(map[string]interface{})
+			Expect(conditionSpec["timeout"]).To(BeEquivalentTo(100))
+			Expect(conditionSpec["delay"]).To(BeEquivalentTo(2))
+			conditions := conditionSpec["conditions"].([]interface{})
+			Expect(conditions).To(HaveLen(2))
+
+			progressing := conditions[0].(map[string]interface{})
+			Expect(progressing["type"]).To(Equal("Progressing"))
+			Expect(progressing["status"]).To(Equal("True"))
+			Expect(progressing["reason"]).To(Equal("NewReplicaSetAvailable"))
+			Expect(progressing["ttl"]).To(BeEquivalentTo(60))
+
+			available := conditions[1].(map[string]interface{})
+			Expect(available["type"]).To(Equal("Available"))
+			Expect(available["status"]).To(Equal("True"))
 		})
 
 		It("should set TestTrigger owner reference to the anchor", func() {
