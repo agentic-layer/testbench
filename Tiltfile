@@ -72,6 +72,7 @@ k8s_yaml(kustomize('operator/config/default'))
 k8s_yaml(kustomize('deploy/local'))
 
 k8s_resource('ai-gateway', port_forwards=['11001:4000'])
+k8s_resource('agent-runtime-configuration', resource_deps=['agent-runtime'])
 k8s_resource('weather-agent', port_forwards='11010:8000', labels=['agents'], resource_deps=['agent-runtime'])
 k8s_resource('tool-gateway', labels=['agentic-layer'], resource_deps=['agent-runtime'], port_forwards='11005:80')
 k8s_resource('weather-mcp-server:toolserver', port_forwards='11020:8000', labels=['agents'], resource_deps=['agent-runtime'])
