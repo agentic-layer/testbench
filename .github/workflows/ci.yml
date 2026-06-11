@@ -98,10 +98,17 @@ jobs:
 
       - name: Port-forward services
         run: |
-          kubectl port-forward -n sample-agents svc/weather-agent 11010:8000 &
-          kubectl port-forward -n ai-gateway svc/ai-gateway 11001:4000 &
-          kubectl port-forward -n monitoring svc/lgtm 4318:4318 &
-          sleep 5
+          set -euo pipefail                                                                                                                                                                                                                                                                                        
+                                                                                                                                                                                                                                                                                                                     
+          # 1. Wait for the workloads to be Ready before forwarding                                                                                                                                                                                                                                                
+          kubectl wait --for=condition=available --timeout=180s deployment/weather-agent -n sample-agents                                                                                                                                                                                                                                                              
+          kubectl wait --for=condition=available --timeout=180s deployment/ai-gateway -n ai-gateway                                                                                                                                                                                                                                                                  
+          kubectl wait --for=condition=available --timeout=180s deployment/lgtm -n monitoring                                                                                                                                                                                                                                                                  
+                                                                                                                                                                                                                                                                                                                   
+          # 2. Start port-forwards in the background                                                                                                                                                                                                                                                               
+          kubectl port-forward -n sample-agents svc/weather-agent 11010:8000 >/tmp/pf-agent.log 2>&1 &                                                                                                                                                                                                             
+          kubectl port-forward -n ai-gateway   svc/ai-gateway     11001:4000 >/tmp/pf-gw.log 2>&1 &                                                                                                                                                                                                                
+          kubectl port-forward -n monitoring   svc/lgtm           4318:4318  >/tmp/pf-otlp.log 2>&1 &
 
       - name: Install uv
         uses: 'astral-sh/setup-uv@v8.2.0'
