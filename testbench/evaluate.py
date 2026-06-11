@@ -107,8 +107,14 @@ class MetricEvaluator:
                     threshold,
                     pass_fail,
                 )
-            except Exception:
-                logger.exception("  Metric '%s' failed, skipping", metric.metric_name)
+            except Exception as exc:
+                logger.exception("  Metric '%s' errored — recording as fail", metric.metric_name)
+                evaluations.append(
+                    Evaluation(
+                        metric=metric,
+                        result=Result(result="fail", score=None, details={"error": str(exc)}),
+                    )
+                )
 
         evaluated = EvaluatedStep(
             input=step.input,

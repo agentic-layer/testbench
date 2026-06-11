@@ -217,8 +217,8 @@ async def test_evaluate_step_preserves_fields(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_metric_error_handling(tmp_path: Path) -> None:
-    """When a metric raises an exception, it is skipped and others continue."""
+async def test_metric_error_recorded_as_failure(tmp_path: Path) -> None:
+    """When a metric raises, it is recorded as result=fail so the pipeline can detect it."""
     evaluator = MetricEvaluator(str(tmp_path / "in.json"), str(tmp_path / "out.json"))
     evaluator._default_threshold = 0.5
 
@@ -245,10 +245,18 @@ async def test_metric_error_handling(tmp_path: Path) -> None:
         )
         result = await evaluator.on_step(step, MagicMock())
 
-    # Only the passing metric should be in evaluations
     assert result.evaluations is not None
-    assert len(result.evaluations) == 1
-    assert result.evaluations[0].metric.metric_name == "good_metric"
+    assert len(result.evaluations) == 2
+
+    bad = next(e for e in result.evaluations if e.metric.metric_name == "bad_metric")
+    assert bad.result.result == "fail"
+    assert bad.result.score is None
+    assert bad.result.details is not None
+    assert "LLM timeout" in bad.result.details["error"]
+
+    good = next(e for e in result.evaluations if e.metric.metric_name == "good_metric")
+    assert good.result.result == "pass"
+    assert good.result.score == 0.9
 
 
 # ---------------------------------------------------------------------------
