@@ -107,7 +107,7 @@ jobs:
                                                                                                                                                                                                                                                                                                                    
           # 2. Start port-forwards in the background                                                                                                                                                                                                                                                               
           kubectl port-forward -n sample-agents svc/weather-agent 11010:8000 >/tmp/pf-agent.log 2>&1 &
-          kubectl port-forward -n ai-gateway   svc/ai-gateway     11001:4000 >/tmp/pf-gw.log 2>&1 &
+          kubectl port-forward -n ai-gateway   svc/ai-gateway     11001:80 >/tmp/pf-gw.log 2>&1 &
           kubectl port-forward -n monitoring   svc/lgtm           4318:4318  >/tmp/pf-otlp.log 2>&1 &
 
           # 3. Probe each forwarded port until it accepts connections, or fail loudly.
