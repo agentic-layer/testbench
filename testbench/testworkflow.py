@@ -67,7 +67,10 @@ def setup_phase(config: PipelineConfig) -> None:
     """Phase 1: Load Experiment YAML/JSON from the configured source, validate, and save."""
     source = config.dataset.source
 
-    if source == "url":
+    if source == "inline":
+        assert config.dataset.inline is not None  # nosec B101 — guaranteed by validator
+        experiment = config.dataset.inline
+    elif source == "url":
         # Pydantic validator guarantees url is set when source=url
         experiment = load_experiment_from_url(config.dataset.url)  # type: ignore[arg-type]
     elif source in ("file", "experiment"):

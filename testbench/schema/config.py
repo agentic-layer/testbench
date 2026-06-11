@@ -6,15 +6,18 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, model_validator
 
+from testbench.schema.models import Experiment
+
 
 class DatasetConfig(BaseModel):
     """Dataset source configuration."""
 
-    source: Literal["url", "file", "s3", "experiment"]
+    source: Literal["url", "file", "s3", "experiment", "inline"]
     url: str | None = None
     path: str | None = None
     bucket: str | None = None
     key: str | None = None
+    inline: Experiment | None = None
 
     @model_validator(mode="after")
     def validate_source_fields(self) -> Self:
@@ -29,6 +32,8 @@ class DatasetConfig(BaseModel):
             missing = [f for f in ("bucket", "key") if not getattr(self, f)]
             if missing:
                 raise ValueError(f"Fields {missing} are required when source is 's3'")
+        if self.source == "inline" and self.inline is None:
+            raise ValueError("'inline' field is required when source is 'inline'")
         return self
 
 

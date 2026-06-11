@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from testbench.testworkflow import run_pipeline
+from testbench.schema.config import PipelineConfig
+from testbench.testworkflow import run_pipeline, setup_phase
 
 
 @pytest.fixture
@@ -106,3 +107,48 @@ class TestRunPipeline:
         # Check that evaluate_main was called with the model override
         call_args = mock_evaluate.call_args
         assert call_args[0][2] == "gemini-2.5-flash-lite"
+
+
+class TestSetupPhaseInline:
+    def _config(self) -> PipelineConfig:
+        return PipelineConfig.model_validate(
+            {
+                "dataset": {
+                    "source": "inline",
+                    "inline": {
+                        "llm_as_a_judge_model": "gemini-2.5-flash-lite",
+                        "default_threshold": 0.9,
+                        "scenarios": [
+                            {
+                                "name": "Weather in New York",
+                                "steps": [
+                                    {
+                                        "input": "What is the weather like in New York right now?",
+                                        "metrics": [{"metric_name": "AgentGoalAccuracyWithoutReference"}],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+                "agent": {"url": "https://my-agent.example.com"},
+                "experiment": {"name": "test-experiment"},
+            }
+        )
+
+    @patch("testbench.testworkflow.save_experiment")
+    @patch("testbench.testworkflow.load_experiment_from_url")
+    @patch("testbench.testworkflow.load_experiment_from_file")
+    @patch("testbench.testworkflow.load_experiment_from_s3")
+    def test_inline_skips_loaders_and_saves_directly(self, mock_s3, mock_file, mock_url, mock_save):
+        config = self._config()
+
+        setup_phase(config)
+
+        mock_url.assert_not_called()
+        mock_file.assert_not_called()
+        mock_s3.assert_not_called()
+        mock_save.assert_called_once()
+        saved = mock_save.call_args[0][0]
+        assert saved is config.dataset.inline
+        assert saved.scenarios[0].name == "Weather in New York"

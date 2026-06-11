@@ -75,6 +75,58 @@ class TestPipelineConfigS3Source:
             PipelineConfig.model_validate(config_dict)
 
 
+class TestPipelineConfigInlineSource:
+    def _inline_dataset(self) -> dict:
+        return {
+            "llm_as_a_judge_model": "gemini-2.5-flash-lite",
+            "default_threshold": 0.9,
+            "scenarios": [
+                {
+                    "name": "Weather in New York",
+                    "steps": [
+                        {
+                            "input": "What is the weather like in New York right now?",
+                            "metrics": [{"metric_name": "AgentGoalAccuracyWithoutReference"}],
+                        }
+                    ],
+                }
+            ],
+        }
+
+    def test_valid_inline_source(self):
+        config_dict = {
+            "dataset": {"source": "inline", "inline": self._inline_dataset()},
+            "agent": {"url": "https://my-agent.example.com"},
+            "experiment": {"name": "test-experiment"},
+        }
+        config = PipelineConfig.model_validate(config_dict)
+        assert config.dataset.source == "inline"
+        assert config.dataset.inline is not None
+        assert config.dataset.inline.llm_as_a_judge_model == "gemini-2.5-flash-lite"
+        assert config.dataset.inline.scenarios[0].name == "Weather in New York"
+        assert config.dataset.inline.scenarios[0].steps[0].input == "What is the weather like in New York right now?"
+
+    def test_inline_source_missing_inline_field(self):
+        config_dict = {
+            "dataset": {"source": "inline"},
+            "agent": {"url": "https://my-agent.example.com"},
+            "experiment": {"name": "test-experiment"},
+        }
+        with pytest.raises(ValueError, match="inline"):
+            PipelineConfig.model_validate(config_dict)
+
+    def test_inline_source_validates_nested_experiment(self):
+        bad = self._inline_dataset()
+        bad["scenarios"] = [{"name": "Missing steps"}]
+        config_dict = {
+            "dataset": {"source": "inline", "inline": bad},
+            "agent": {"url": "https://my-agent.example.com"},
+            "experiment": {"name": "test-experiment"},
+        }
+        with pytest.raises(ValueError, match="steps"):
+            PipelineConfig.model_validate(config_dict)
+
+
 class TestPipelineConfigOptionalFields:
     def test_with_evaluate_model(self):
         config_dict = {

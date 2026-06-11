@@ -1,26 +1,6 @@
 # Pipeline Configuration
 # Run with: uv run testworkflow config.yaml
 
-# Dataset source — how to acquire the test dataset
-dataset:
-  # source: url | file | s3
-#  source: url
-#  url: "https://example.com/dataset.csv"
-
-  # For local file:
-   source: file
-   path: "./.github/workflows/experiment/experiment.json"
-
-  # For S3/MinIO:
-  # source: s3
-  # bucket: "datasets"
-  # key: "dataset.csv"
-  # Requires env vars: MINIO_ENDPOINT, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
-
-  # For pre-built experiment JSON (skips dataset conversion):
-  # source: experiment
-  # path: "./data/datasets/experiment.json"
-
 # Agent to evaluate — must expose A2A protocol endpoint
 agent:
   url: "http://localhost:11010"
@@ -39,3 +19,28 @@ experiment:
 workflow:
   execution_id: "auto"    # defaults to $GITHUB_RUN_ID or UUID
   execution_number: 1     # defaults to $GITHUB_RUN_NUMBER or 1
+
+# Dataset — embedded inline (mirrors the Experiment CRD's dataset.inline).
+# Alternatives: source: url | file | s3 | experiment.
+dataset:
+  source: inline
+  inline:
+    llm_as_a_judge_model: gemini-2.5-flash-lite
+    default_threshold: 0.9
+    scenarios:
+      - name: "Weather in New York"
+        steps:
+          - input: "What is the weather like in New York right now?"
+            reference:
+              tool_calls:
+                - name: get_weather
+                  args:
+                    city: "New York"
+              topics:
+                - weather
+            metrics:
+              - metric_name: AgentGoalAccuracyWithoutReference
+              - metric_name: ToolCallAccuracy
+              - metric_name: TopicAdherence
+                parameters:
+                  mode: precision
