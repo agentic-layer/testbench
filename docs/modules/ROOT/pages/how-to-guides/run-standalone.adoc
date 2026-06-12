@@ -1,0 +1,110 @@
+// HOW-TO GUIDE — Diátaxis
+// This page answers a goal-shaped question: "how do I do X?"
+// DO: assume context; give concrete steps; link to reference for fields.
+// DON'T: teach concepts; duplicate reference content; include long explanations.
+// If a section drifts into "what is this and why" → move to explanation.adoc.
+// If a section drifts into "exhaustive list of fields/values" → move to reference.adoc.
+// If a section turns into a from-zero walkthrough → move to a tutorial in a showcase repo.
+
+= Run Testbench Standalone
+
+This guide walks you through running the full evaluation pipeline as a single CLI invocation against an agent that is already reachable on your network, without deploying anything into Kubernetes.
+
+Use this when you want to evaluate an agent from a developer machine, a CI job, or any environment where Testkube is not available.
+
+== Prerequisites
+
+* https://docs.astral.sh/uv/[uv] installed
+* An agent exposing an A2A protocol endpoint reachable from where you run the CLI
+* An OpenAI-compatible LLM endpoint (e.g. AI Gateway) and the corresponding API key for the judge model
+* (Optional) An OTLP collector if you want to publish evaluation scores
+
+== Step 1: Install the CLI
+
+Install the `testworkflow` command into an isolated, automatically-managed environment:
+
+[source,shell]
+----
+uv tool install agentic-layer-testbench
+----
+
+This puts `testworkflow` on your `PATH` without polluting the system Python or any project virtualenv. Upgrade later with `uv tool upgrade agentic-layer-testbench`.
+
+Alternatively, run it ad-hoc without installing — uv resolves and caches the package on first use:
+
+[source,shell]
+----
+uvx --from agentic-layer-testbench testworkflow config.yaml
+----
+
+The CLI runs the full Setup → Run → Evaluate → Publish → Visualize pipeline in a single process.
+
+== Step 2: Write a config.yaml
+
+Create a `config.yaml` describing the agent to evaluate, the dataset to use, and the experiment metadata. The smallest useful configuration embeds the Experiment directly:
+
+[source,yaml]
+----
+agent:
+  url: "http://localhost:11010" # <1>
+
+experiment:
+  name: "my-evaluation"
+
+dataset:
+  source: inline # <2>
+  inline:
+    llm_as_a_judge_model: gemini-2.5-flash-lite
+    default_threshold: 0.9
+    scenarios:
+      - name: "Weather in New York"
+        steps:
+          - input: "What is the weather like in New York right now?"
+            reference:
+              tool_calls:
+                - name: get_weather
+                  args:
+                    city: "New York"
+              topics:
+                - weather
+            metrics:
+              - metric_name: AgentGoalAccuracyWithoutReference
+              - metric_name: ToolCallAccuracy
+              - metric_name: TopicAdherence
+                parameters:
+                  mode: precision
+----
+<1> A2A endpoint of the agent you want to evaluate
+<2> `inline` embeds the Experiment in the same file — no separate JSON needed
+
+NOTE: The `inline` payload mirrors the `dataset.inline` field on the `Experiment` CRD, so the same Experiment can be moved between standalone runs and in-cluster workflows without rewriting it.
+
+For other dataset sources (external file, HTTP URL, S3/MinIO), see `config.example.yaml` in the repository.
+
+== Step 3: Run the pipeline
+
+Point the CLI at the config file:
+
+[source,shell]
+----
+testworkflow config.yaml
+----
+
+The CLI runs all phases in order and writes intermediate JSON to `data/` (overridable per phase). The HTML report is written to `data/results/evaluation_report.html`.
+
+By default the run exits non-zero if any metric evaluation fails. To keep the run green regardless of metric pass/fail, set `evaluate.fail_on_metric_failure: false` in `config.yaml`.
+
+== Step 4: Publish metrics (optional)
+
+To publish evaluation scores to an OTLP-compatible backend, point the standard OpenTelemetry environment variable at the collector before invoking the CLI:
+
+[source,shell]
+----
+OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318" testworkflow config.yaml
+----
+
+Each evaluation produces one gauge observation per metric labeled with `experiment_name`, `scenario`, and `step` — same contract as the in-cluster `publish-template`.
+
+== Next steps
+
+* To move the same evaluation into Kubernetes, see xref:testbench::how-to-guides/first-workflow.adoc[Create Your First TestWorkflow] — the inline Experiment shape carries over to the `Experiment` CRD.

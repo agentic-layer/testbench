@@ -1,6 +1,7 @@
 .How-To Guides
 * xref:how-to-guides/install.adoc[]
 * xref:how-to-guides/first-workflow.adoc[]
+* xref:how-to-guides/run-standalone.adoc[]
 
 .Reference
 * xref:reference.adoc[]
