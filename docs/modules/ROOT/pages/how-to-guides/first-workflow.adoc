@@ -6,95 +6,94 @@
 // If a section drifts into "exhaustive list of fields/values" → move to reference.adoc.
 // If a section turns into a from-zero walkthrough → move to a tutorial in a showcase repo.
 
-= Create Your First TestWorkflow
+= Create Your First Experiment
 
-This guide walks you through defining an experiment, creating a TestWorkflow, and running it against an agent deployed in your cluster.
+This guide walks you through creating an `Experiment` custom resource that evaluates an agent deployed in your cluster. The Testbench operator reconciles the `Experiment` into the underlying Testkube `TestWorkflow`, dataset `ConfigMap`, and (optional) `TestTrigger` for you — so a single YAML is all you write.
 
 == Prerequisites
 
 * Testbench installed (see xref:testbench::how-to-guides/install.adoc[Install the Testbench])
-* An agent with an A2A protocol endpoint deployed in the cluster
-* An AI Gateway deployed in your cluster
+* An `Agent` reachable via the A2A protocol deployed in the cluster
+* An `AiGateway` deployed in the cluster (used as the LLM-as-a-judge endpoint)
 * An OTLP collector endpoint reachable from the `testkube` namespace
-* https://docs.testkube.io/articles/install/install-with-cli[Testkube CLI] installed
+* https://docs.testkube.io/articles/install/install-with-cli[Testkube CLI] installed (only needed for the optional manual run in Step 3)
 
-== Understand the pipeline
+== Understand the model
 
-The Testbench evaluates agents through a pipeline. Each phase is a reusable `TestWorkflowTemplate`:
+An `Experiment` is a custom resource that describes _what_ to test. The operator translates it into the resources Testkube needs to run the evaluation pipeline:
 
-. **Run** -- sends queries to the agent via the A2A protocol and records responses
-. **Evaluate** -- scores responses using LLM-as-a-judge metrics
-. **Publish** -- sends evaluation scores to an OTLP-compatible observability backend
-. **Visualize** -- generates a self-contained HTML report as a workflow artifact
+* `agentRef` — which agent to evaluate
+* `aiGatewayRef` — which AI Gateway provides the judge model
+* `dataset` — the scenarios and metrics to evaluate (inline, URL, or S3)
+* `env` — extra environment variables for the pipeline pods (e.g. `OTEL_EXPORTER_OTLP_ENDPOINT`)
+* `trigger` (optional) — re-run automatically when the referenced agent is redeployed
+* `schedule` (optional) — re-run on a cron schedule
 
-NOTE: This guide uses a ConfigMap-based experiment, which is the simplest way to get started. For loading datasets from external sources, see <<load-dataset-from-s3-minio>> below.
+Each `Experiment` reconciles into one `TestWorkflow` plus a generated dataset `ConfigMap`. You do not need to write either of them by hand.
 
-== Step 1: Define your experiment
+== Step 1: Define your Experiment
 
-An experiment is a JSON document that describes what to test. It follows a three-level hierarchy:
+Scenarios and metrics live under `dataset.inline`. The hierarchy is three levels:
 
-* **Experiment** -- top-level configuration (LLM model, default threshold)
-** **Scenario** -- a named group of steps (e.g., "Weather in New York")
-*** **Step** -- a single query with expected reference data and metrics to evaluate
+* **Experiment** — top-level configuration (judge model, default threshold)
+** **Scenario** — a named group of steps (e.g., "Weather in New York")
+*** **Step** — a single query with expected reference data and metrics to evaluate
 
-Create a ConfigMap containing your experiment:
+Create the `Experiment`:
 
 [source,yaml]
 ----
-apiVersion: v1
-kind: ConfigMap
+apiVersion: testbench.agentic-layer.ai/v1alpha1
+kind: Experiment
 metadata:
-  name: experiment
+  name: example-experiment # <1>
   namespace: testkube
-data:
-  experiment.json: |
-    {
-      "llm_as_a_judge_model": "gemini-2.5-flash-lite",
-      "default_threshold": 0.9,
-      "scenarios": [
-        {
-          "name": "Weather in New York",
-          "steps": [
-            {
-              "input": "What is the weather like in New York right now?",
-              "reference": {
-                "tool_calls": [
-                  {
-                    "name": "get_weather",
-                    "args": {
-                      "city": "New York"
-                    }
-                  }
-                ],
-                "topics": ["weather"]
-              },
-              "metrics": [
-                {
-                  "metric_name": "AgentGoalAccuracyWithoutReference"
-                },
-                {
-                  "metric_name": "ToolCallAccuracy"
-                },
-                {
-                  "metric_name": "TopicAdherence",
-                  "parameters": {
-                    "mode": "precision"
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    }
+spec:
+  agentRef: # <2>
+    name: weather-agent
+    namespace: sample-agents
+  aiGatewayRef: # <3>
+    name: ai-gateway
+    namespace: ai-gateway
+  env: # <4>
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://lgtm.monitoring.svc.cluster.local:4318"
+  dataset:
+    inline: # <5>
+      llmAsAJudgeModel: gemini-2.5-flash-lite
+      defaultThreshold: 0.9
+      scenarios:
+        - name: "Weather in New York"
+          steps:
+            - input: "What is the weather like in New York right now?"
+              reference:
+                toolCalls:
+                  - name: get_weather
+                    args:
+                      city: "New York"
+                topics:
+                  - weather
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: ToolCallAccuracy
+                - metricName: TopicAdherence
+                  parameters:
+                    mode: precision
 ----
+<1> A unique name — used as the prefix for the generated `TestWorkflow` and `ConfigMap`.
+<2> The A2A-capable `Agent` to evaluate. The operator resolves its endpoint automatically.
+<3> The `AiGateway` providing the LLM judge. The operator injects its base URL into the evaluate phase.
+<4> Pipeline-pod environment variables. The publish phase reads `OTEL_EXPORTER_OTLP_ENDPOINT` from here.
+<5> Inline dataset. Fields use Kubernetes camelCase (`llmAsAJudgeModel`, `toolCalls`, `metricName`).
 
 Apply it:
 
 [source,shell]
 ----
-kubectl apply -f experiment.yaml
+kubectl apply -f example-experiment.yaml
 ----
+
+The operator immediately reconciles the `Experiment` into a `TestWorkflow` named `<experiment-name>-<experiment-namespace>-workflow` in the `testkube` namespace, plus a sibling `ConfigMap` holding the rendered Experiment JSON.
 
 === Available metrics
 
@@ -110,105 +109,41 @@ The following table lists commonly used metrics provided by RAGAS, the default f
 
 | `ToolCallAccuracy`
 | Whether the agent called the correct tools with the correct arguments
-| `reference.tool_calls`
+| `reference.toolCalls`
 
 | `TopicAdherence`
 | Whether the response stays on the specified topics
 | `reference.topics`
 |===
 
-== Step 2: Configure the OTLP endpoint
+== Step 2: Verify the generated resources
 
-Create a ConfigMap that tells the pipeline where to send metrics:
-
-[source,yaml]
-----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: otel-config
-  namespace: testkube
-data:
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://lgtm.monitoring.svc.cluster.local:4318"
-----
-
-Apply it:
+Confirm the operator produced a `TestWorkflow` for your `Experiment`:
 
 [source,shell]
 ----
-kubectl apply -f otel-config.yaml
+kubectl get testworkflows -n testkube -l testbench.agentic-layer.ai/experiment=example-experiment
 ----
 
-== Step 3: Create the TestWorkflow
-
-The TestWorkflow ties everything together. It mounts the experiment ConfigMap, injects the OTLP endpoint, and chains the pipeline templates:
-
-[source,yaml]
-----
-apiVersion: testworkflows.testkube.io/v1
-kind: TestWorkflow
-metadata:
-  name: example-workflow # <1>
-  namespace: testkube
-  labels:
-    testkube.io/test-category: ragas-evaluation
-    app: testworkflows
-
-spec:
-  content:
-    files:
-      - path: /data/datasets/experiment.json # <2>
-        contentFrom:
-          configMapKeyRef:
-            name: experiment
-            key: experiment.json
-
-  container:
-    env:
-      - name: OTEL_EXPORTER_OTLP_ENDPOINT # <3>
-        valueFrom:
-          configMapKeyRef:
-            name: otel-config
-            key: OTEL_EXPORTER_OTLP_ENDPOINT
-
-  use:
-  - name: run-template # <4>
-    config:
-      agentUrl: "http://weather-agent.sample-agents:8000" # <5>
-  - name: evaluate-template
-  - name: publish-template
-  - name: visualize-template
-----
-<1> A unique name for your workflow
-<2> Mounts the experiment JSON from the ConfigMap into the shared data volume
-<3> Injects the OTLP endpoint as an environment variable for the publish phase
-<4> Templates are executed in order: run -> evaluate -> publish -> visualize
-<5> The A2A endpoint of the agent you want to evaluate
-
-Apply it:
+Inspect the `Experiment` status if anything looks off — the operator records reconcile errors as events:
 
 [source,shell]
 ----
-kubectl apply -f example-workflow.yaml
+kubectl describe experiment example-experiment -n testkube
 ----
 
-== Step 4: Run and monitor the workflow
+== Step 3: Run the workflow
 
-Start the workflow:
+Trigger the generated `TestWorkflow` once, on demand:
 
 [source,shell]
 ----
-kubectl testkube run testworkflow example-workflow --watch
+kubectl testkube run testworkflow <generated-workflow-name> --watch
 ----
 
-View logs after completion:
+Replace `<generated-workflow-name>` with the value from Step 2. If you configured `trigger` or `schedule` in the `Experiment` (see <<auto-trigger-on-agent-deployment>> and <<run-on-a-cron-schedule>>), the operator runs the workflow automatically — you can skip this manual invocation.
 
-[source,shell]
-----
-kubectl testkube get testworkflow example-workflow-1
-----
-
-== Step 5: View results
+== Step 4: View results
 
 === Grafana dashboards
 
@@ -220,7 +155,7 @@ The visualize phase produces a self-contained HTML report as a workflow artifact
 
 [source,shell]
 ----
-kubectl testkube download artifacts example-workflow-1
+kubectl testkube download artifacts <generated-workflow-name>-1
 ----
 
 The report includes:
@@ -230,121 +165,107 @@ The report includes:
 * Metric distribution histograms with statistics
 * A searchable, sortable results table with all evaluations
 
-[[load-dataset-from-s3-minio]]
-== Load a dataset from S3/MinIO (alternative to Step 1)
+== Load a dataset from S3/MinIO
 
-Instead of embedding the experiment in a ConfigMap, you can load a dataset from an S3-compatible store using the `setup-template`. Replace the `content.files` and prepend `setup-template` to the `use` list:
-
-[source,yaml]
-----
-apiVersion: testworkflows.testkube.io/v1
-kind: TestWorkflow
-metadata:
-  name: s3-workflow
-  namespace: testkube
-spec:
-  container:
-    env:
-      - name: OTEL_EXPORTER_OTLP_ENDPOINT
-        valueFrom:
-          configMapKeyRef:
-            name: otel-config
-            key: OTEL_EXPORTER_OTLP_ENDPOINT
-      - name: MINIO_ENDPOINT
-        value: "http://minio.storage:9000"
-      - name: MINIO_ROOT_USER
-        value: "minioadmin"
-      - name: MINIO_ROOT_PASSWORD
-        value: "minioadmin"
-
-  use:
-  - name: setup-template
-    config:
-      datasetUrl: "http://data-server.data-server:8000/dataset.csv"
-  - name: run-template
-    config:
-      agentUrl: "http://weather-agent.sample-agents:8000"
-  - name: evaluate-template
-  - name: publish-template
-  - name: visualize-template
-----
-
-The `setup-template` downloads the dataset.
-
-== Auto-trigger on agent deployment (optional)
-
-You can automatically run the evaluation workflow whenever the agent under test is redeployed. Create a `TestTrigger`:
+Swap `dataset.inline` for `dataset.s3` to pull the dataset from an S3-compatible store at run time. The operator injects the MinIO credentials into the setup phase via `env`:
 
 [source,yaml]
 ----
-apiVersion: tests.testkube.io/v1
-kind: TestTrigger
+apiVersion: testbench.agentic-layer.ai/v1alpha1
+kind: Experiment
 metadata:
-  name: example-workflow-trigger
+  name: example-experiment
   namespace: testkube
 spec:
-  resource: deployment
-  resourceSelector:
+  agentRef:
     name: weather-agent
     namespace: sample-agents
-  event: modified
-  action: run
-  execution: testworkflow
-  concurrencyPolicy: allow
-  testSelector:
-    name: example-workflow
-    namespace: testkube
-  disabled: false
+  aiGatewayRef:
+    name: ai-gateway
+    namespace: ai-gateway
+  env:
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://lgtm.monitoring.svc.cluster.local:4318"
+    - name: MINIO_ENDPOINT
+      value: "http://minio.storage:9000"
+    - name: MINIO_ROOT_USER
+      value: "minioadmin"
+    - name: MINIO_ROOT_PASSWORD
+      value: "minioadmin"
+  dataset:
+    s3:
+      bucket: datasets
+      key: weather.csv
 ----
 
-This trigger watches the `weather-agent` Deployment in the `sample-agents` namespace and runs the workflow on every modification.
+For HTTP datasets, use `dataset.url: "https://example.com/dataset.csv"` in place of `dataset.s3`.
+
+[[auto-trigger-on-agent-deployment]]
+== Auto-trigger on agent deployment
+
+Add a `trigger` block to re-evaluate the agent every time it is redeployed. The operator creates and manages the underlying Testkube `TestTrigger` for you:
+
+[source,yaml]
+----
+spec:
+  trigger:
+    enabled: true
+    concurrencyPolicy: Allow # Allow | Forbid | Replace
+----
+
+Set `enabled: false` to pause auto-execution without deleting the `Experiment`.
+
+[[run-on-a-cron-schedule]]
+== Run on a cron schedule
+
+Add a `schedule` block to run the evaluation on a fixed cadence:
+
+[source,yaml]
+----
+spec:
+  schedule:
+    cron: "0 3 * * *"    # daily at 03:00
+    timezone: "Europe/Berlin"
+----
+
+`trigger` and `schedule` are independent — combine them to run on both events and a regular cadence.
 
 == Multi-turn conversation scenarios
 
-To test multi-turn conversations, add multiple steps to a single scenario. The A2A protocol maintains conversation context across steps via a `context_id`:
+To test multi-turn conversations, add multiple steps to a single scenario. The A2A protocol maintains conversation context across steps via a `contextId`:
 
-[source,json]
+[source,yaml]
 ----
-{
-  "llm_as_a_judge_model": "gemini-2.5-flash-lite",
-  "default_threshold": 0.9,
-  "scenarios": [
-    {
-      "name": "Weather then time in New York",
-      "steps": [
-        {
-          "input": "What is the weather like in New York right now?",
-          "reference": {
-            "tool_calls": [
-              { "name": "get_weather", "args": { "city": "New York" } }
-            ]
-          },
-          "metrics": [
-            { "metric_name": "AgentGoalAccuracyWithoutReference" },
-            { "metric_name": "ToolCallAccuracy" }
-          ]
-        },
-        {
-          "input": "What time is it in New York?",
-          "reference": {
-            "tool_calls": [
-              { "name": "get_current_time", "args": { "city": "New York" } }
-            ]
-          },
-          "metrics": [
-            { "metric_name": "AgentGoalAccuracyWithoutReference" },
-            { "metric_name": "ToolCallAccuracy" }
-          ]
-        }
-      ]
-    }
-  ]
-}
+spec:
+  dataset:
+    inline:
+      llmAsAJudgeModel: gemini-2.5-flash-lite
+      defaultThreshold: 0.9
+      scenarios:
+        - name: "Weather then time in New York"
+          steps:
+            - input: "What is the weather like in New York right now?"
+              reference:
+                toolCalls:
+                  - name: get_weather
+                    args: { city: "New York" }
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: ToolCallAccuracy
+            - input: "What time is it in New York?"
+              reference:
+                toolCalls:
+                  - name: get_current_time
+                    args: { city: "New York" }
+              metrics:
+                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: ToolCallAccuracy
 ----
 
-Each step within the scenario is sent sequentially to the agent. The agent receives the same `context_id` for all steps, allowing it to maintain conversation state.
+Each step within the scenario is sent sequentially to the agent. The agent receives the same `contextId` for all steps, allowing it to maintain conversation state.
 
 == Next steps
 
-* Learn about the internal data flow and evaluation architecture in xref:testbench:architecture:building-blocks/index.adoc[Building Block View]
-* Explore cross-cutting concerns like tracing and observability in xref:testbench:architecture:crosscutting/index.adoc[Cross-cutting Concepts]
+* For local CLI evaluations without Kubernetes, see xref:testbench::how-to-guides/run-standalone.adoc[Run Testbench Standalone].
+* Learn about the internal data flow and evaluation architecture in xref:testbench:architecture:building-blocks/index.adoc[Building Block View].
+* Explore cross-cutting concerns like tracing and observability in xref:testbench:architecture:crosscutting/index.adoc[Cross-cutting Concepts].
