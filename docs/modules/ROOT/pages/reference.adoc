@@ -8,53 +8,326 @@
 
 = Testbench Reference
 
-This reference covers the Helm chart values and the five `TestWorkflowTemplate` CRDs that the chart installs into the `testkube` namespace.
+This reference covers the resources installed by the Testbench `install.yaml` manifest: the `Experiment` Custom Resource Definition, the five `TestWorkflowTemplate` CRDs in the `testkube` namespace, and the OTLP metrics contract used by the publish phase.
 
-== Helm chart values
+== Installation artifact
 
-[cols="3,1,2,4"]
+Testbench is installed as a single bundled manifest:
+
+[source,shell]
+----
+kubectl apply -f https://github.com/agentic-layer/testbench/releases/latest/download/install.yaml
+----
+
+The manifest creates:
+
+[cols="2,3"]
 |===
-| Field | Type | Default | Description
+| Resource | Location
 
-| `namespace.create`
+| Operator controller deployment
+| Namespace `testbench-operator-system`
+
+| `Experiment` CRD (`testbench.agentic-layer.ai/v1alpha1`)
+| Cluster-scoped CRD; instances are namespaced
+
+| Five `TestWorkflowTemplate` CRDs
+| Namespace `testkube`
+
+| `grafana-testkube-dashboard` ConfigMap
+| Namespace `monitoring`
+|===
+
+Customisation is performed via Kustomize overlays against the released `install.yaml`. The container image and dashboard namespace are the two values commonly overridden — see the overlays in `operator/config/samples/overlays/` for templates.
+
+== Experiment CRD
+
+`apiVersion: testbench.agentic-layer.ai/v1alpha1`, `kind: Experiment`. Cluster-scoped CRD with namespaced instances. Short name: `exp`.
+
+Each `Experiment` instance reconciles into one Testkube `TestWorkflow`, one dataset `ConfigMap`, and (optionally) one `TestTrigger`, all in the `testkube` namespace.
+
+=== spec
+
+[cols="2,1,1,4"]
+|===
+| Field | Type | Required | Description
+
+| `agentRef`
+| object
+| yes
+| Reference to the `Agent` resource to evaluate. See <<agentref>>.
+
+| `aiGatewayRef`
+| object
+| no
+| Reference to the `AiGateway` resource providing the LLM judge. Uses the standard `corev1.ObjectReference` schema; only `name` and `namespace` are honoured.
+
+| `dataset`
+| object
+| yes
+| Source of the test dataset. Exactly one of `dataset.inline`, `dataset.url`, or `dataset.s3` must be set. See <<datasetsource>>.
+
+| `env`
+| `[]corev1.EnvVar`
+| no
+| Environment variables injected into the generated `TestWorkflow` pods. Supports `value` and `valueFrom` (`secretKeyRef`, `configMapKeyRef`, etc.). User-defined entries override operator-set defaults with the same name.
+
+| `schedule`
+| object
+| no
+| Cron-based execution. See <<schedulespec>>.
+
+| `trigger`
+| object
+| no
+| Event-based re-execution when the referenced agent is redeployed. See <<triggerspec>>.
+|===
+
+[[agentref]]
+=== AgentRef
+
+[cols="2,1,1,4"]
+|===
+| Field | Type | Required | Description
+
+| `name`
+| string
+| yes
+| Name of the `Agent` resource.
+
+| `namespace`
+| string
+| no
+| Namespace of the `Agent` resource. Defaults to the `Experiment`'s namespace.
+|===
+
+[[datasetsource]]
+=== DatasetSource
+
+Exactly one of the three sub-fields must be set. The CRD enforces this via a CEL validation rule.
+
+[cols="2,1,4"]
+|===
+| Field | Type | Description
+
+| `inline`
+| object
+| Inline dataset specified directly in the `Experiment`. See <<inlinedataset>>.
+
+| `url`
+| string
+| HTTP/HTTPS URL to a `.csv`, `.json`, or `.parquet` file.
+
+| `s3`
+| object
+| S3/MinIO source. See <<s3source>>.
+|===
+
+[[inlinedataset]]
+==== InlineDataset
+
+[cols="2,1,1,4"]
+|===
+| Field | Type | Required | Description
+
+| `llmAsAJudgeModel`
+| string
+| no
+| LLM model identifier used by the evaluate phase (e.g. `gemini-2.5-flash-lite`).
+
+| `defaultThreshold`
+| float (0.0–1.0)
+| no
+| Default pass/fail threshold applied to metrics that do not specify their own.
+
+| `scenarios`
+| `[]Scenario`
+| yes
+| One or more scenarios. See <<scenario>>.
+|===
+
+[[s3source]]
+==== S3Source
+
+[cols="2,1,4"]
+|===
+| Field | Type | Description
+
+| `bucket`
+| string
+| S3/MinIO bucket name.
+
+| `key`
+| string
+| Object key (path within the bucket). Supported formats: `.csv`, `.json`, `.parquet`.
+|===
+
+Credentials are supplied through `spec.env` (typically `MINIO_ENDPOINT`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`).
+
+[[scenario]]
+=== Scenario
+
+[cols="2,1,1,4"]
+|===
+| Field | Type | Required | Description
+
+| `name`
+| string
+| yes
+| Scenario name. Surfaces as the `scenario` attribute on published metrics.
+
+| `steps`
+| `[]Step`
+| yes
+| One or more sequential steps. All steps in a scenario share the same A2A `contextId`, enabling multi-turn conversations.
+|===
+
+[[step]]
+=== Step
+
+[cols="2,1,1,4"]
+|===
+| Field | Type | Required | Description
+
+| `input`
+| string
+| yes
+| User input sent to the agent.
+
+| `reference`
+| object
+| no
+| Expected outputs used by reference-based metrics. See <<reference>>.
+
+| `customValues`
+| object (free-form)
+| no
+| Arbitrary key/value pairs forwarded to metric callables (e.g. `retrievedContexts` for RAGAS context metrics). Schemaless; preserved unchanged.
+
+| `metrics`
+| `[]Metric`
+| no
+| Metrics to evaluate for this step. See <<metric>>.
+|===
+
+[[reference]]
+=== Reference
+
+[cols="2,2,4"]
+|===
+| Field | Type | Description
+
+| `response`
+| string
+| Expected response text.
+
+| `toolCalls`
+| `[]ToolCall`
+| Expected tool invocations. See <<toolcall>>.
+
+| `topics`
+| `[]string`
+| Expected topics the response should cover. Used by `TopicAdherence`.
+|===
+
+[[toolcall]]
+=== ToolCall
+
+[cols="2,2,4"]
+|===
+| Field | Type | Description
+
+| `name`
+| string
+| Tool name.
+
+| `args`
+| object (free-form)
+| Tool arguments as a JSON object. Schemaless; preserved unchanged.
+|===
+
+[[metric]]
+=== Metric
+
+[cols="2,2,4"]
+|===
+| Field | Type | Description
+
+| `metricName`
+| string
+| Metric identifier resolved by the `GenericMetricsRegistry` (e.g. `AgentGoalAccuracyWithoutReference`, `ToolCallAccuracy`, `TopicAdherence`).
+
+| `threshold`
+| float (0.0–1.0)
+| Per-metric pass/fail threshold. Overrides `dataset.inline.defaultThreshold`.
+
+| `parameters`
+| object (free-form)
+| Metric-specific parameters (e.g. `mode: precision` for `TopicAdherence`). Schemaless; preserved unchanged.
+|===
+
+[[triggerspec]]
+=== TriggerSpec
+
+[cols="2,2,4"]
+|===
+| Field | Type | Description
+
+| `enabled`
 | boolean
-| `true`
-| When `true`, the chart creates the target namespace if it does not exist.
+| When `true`, the operator creates a Testkube `TestTrigger` that re-runs the workflow whenever the referenced agent is redeployed.
 
-| `namespace.name`
-| string
-| `testkube`
-| Namespace into which the chart resources are deployed.
-
-| `image.repository`
-| string
-| `ghcr.io/agentic-layer/testbench/testworkflows`
-| Container image used by all pipeline phase containers.
-
-| `image.tag`
-| string
-| `""` (chart `appVersion`)
-| Image tag override. Empty string uses the chart's `appVersion`.
-
-| `image.pullPolicy`
-| string
-| `IfNotPresent`
-| Kubernetes image pull policy.
-
-| `grafana.dashboardConfigMapName`
-| string
-| `grafana-testkube-dashboard`
-| Name of the ConfigMap containing the Grafana dashboard JSON.
-
-| `grafana.dashboardNamespace`
-| string
-| `monitoring`
-| Namespace where the Grafana dashboard ConfigMap is created. Must be watched by your Grafana sidecar.
+| `concurrencyPolicy`
+| enum: `Allow` \| `Forbid` \| `Replace`
+| How concurrent executions are handled. Mirrors the Testkube `TestTrigger` semantics.
 |===
+
+[[schedulespec]]
+=== ScheduleSpec
+
+[cols="2,2,4"]
+|===
+| Field | Type | Description
+
+| `cron`
+| string
+| Standard Kubernetes 5-field cron expression (e.g. `0 3 * * *`). Required.
+
+| `timezone`
+| string
+| IANA timezone name (e.g. `Europe/Berlin`). Defaults to cluster local time.
+|===
+
+`schedule` and `trigger` are independent and may be combined.
+
+=== status
+
+[cols="2,2,4"]
+|===
+| Field | Type | Description
+
+| `conditions`
+| `[]metav1.Condition`
+| Standard Kubernetes status conditions. The `Ready` condition reflects overall reconcile health.
+
+| `generatedResources`
+| `[]GeneratedResource`
+| Resources created by the operator for this `Experiment` (kind, name, namespace).
+
+| `lastExecution`
+| object
+| Metadata from the most recent execution: `executionId`, `executionNumber`, `startTime`, `endTime`, `status`.
+|===
+
+=== Print columns
+
+`kubectl get experiments` shows: `Agent` (from `spec.agentRef.name`), `Status` (from the `Ready` condition), and `Age`.
 
 == TestWorkflowTemplates
 
-The chart installs five `TestWorkflowTemplate` CRDs. Workflows reference them via the `use` list. All templates share a common `/app/data` volume provided by the calling `TestWorkflow`.
+The installer creates five `TestWorkflowTemplate` resources in the `testkube` namespace. The Experiment-generated `TestWorkflow` references them via its `use` list; all templates share the calling workflow's `/app/data` volume.
+
+You normally do not invoke these templates directly — the operator wires them into the generated workflow. They are documented here for diagnostics, custom workflows, and overlay authoring.
 
 === +setup-template+
 
@@ -77,7 +350,7 @@ Downloads a dataset from an S3-compatible store and writes it to the shared volu
 
 *Output*: `data/datasets/experiment.json` — an `Experiment` model serialized as JSON.
 
-*Use this template* when your dataset lives in object storage. For ConfigMap-based datasets, omit this template and mount the file directly via `spec.content.files`.
+*Use this template* when your dataset lives in object storage. For `dataset.inline` or `dataset.url` Experiments, the operator skips this template and provides the dataset by other means (ConfigMap mount or HTTP fetch).
 
 === +run-template+
 
@@ -90,6 +363,10 @@ Sends every step in the experiment to the target agent via the A2A protocol and 
 | `agentUrl`
 | string
 | HTTP URL of the agent's A2A endpoint (e.g. `+http://weather-agent.sample-agents:8000+`).
+
+| `experimentName`
+| string
+| Experiment name used for OpenTelemetry labelling on emitted spans and metrics.
 |===
 
 *Input*: `data/datasets/experiment.json`.
@@ -106,9 +383,13 @@ Scores agent responses using LLM-as-a-judge metrics via the configured metrics f
 |===
 | Config parameter | Type | Description
 
-| `openApiBasePath`
+| `openAiBasePath`
 | string
-| Base URL for the OpenAI-compatible API used by the LLM judge (e.g. the in-cluster AI Gateway). Defaults to empty string, which uses the `OPENAI_BASE_URL` environment variable if set.
+| Base URL for the OpenAI-compatible API used by the LLM judge (e.g. the in-cluster AI Gateway). Maps to the `OPENAI_BASE_URL` environment variable in the phase container. Defaults to empty string.
+
+| `openAiApiKey`
+| string
+| API key for the OpenAI-compatible API. Maps to the `OPENAI_API_KEY` environment variable. Defaults to empty string.
 |===
 
 *Input*: `data/experiments/executed_experiment.json`.
@@ -148,7 +429,7 @@ The `publish-template` exports OpenTelemetry gauge metrics over HTTP/protobuf to
 | Attribute | Value
 
 | Metric name
-| The `metric_name` string from the experiment JSON (e.g. `AgentGoalAccuracyWithoutReference`).
+| The `metricName` string from the Experiment (e.g. `AgentGoalAccuracyWithoutReference`).
 
 | Gauge value
 | Float in `[0.0, 1.0]`.
@@ -163,7 +444,7 @@ The `publish-template` exports OpenTelemetry gauge metrics over HTTP/protobuf to
 | Zero-based step index within the scenario.
 |===
 
-The OTLP endpoint is read from the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable at runtime. Inject it via a ConfigMap or a `container.env` entry in the calling `TestWorkflow`.
+The OTLP endpoint is read from the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable at runtime. Inject it via `spec.env` on the `Experiment` (typically pointing at the in-cluster collector, e.g. `http://lgtm.monitoring.svc.cluster.local:4318`).
 
 == Related
 
