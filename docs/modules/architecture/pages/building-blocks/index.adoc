@@ -1,8 +1,20 @@
 = Building Block View
 
+== User-facing API: the Experiment CRD
+
+Users do not author Testkube workflows directly. They submit an `Experiment` custom resource (`testbench.agentic-layer.ai/v1alpha1`) that declares the agent under test, the LLM judge, the dataset (inline, URL, or S3/MinIO), and optional triggers and schedules.
+
+The Testbench operator (deployed in `testbench-operator-system`) watches `Experiment` resources and reconciles each one into:
+
+* A Testkube `TestWorkflow` that composes the five `TestWorkflowTemplate` resources installed in the `testkube` namespace
+* A `ConfigMap` holding the rendered Experiment JSON, mounted into the pipeline pods
+* Optionally a `TestTrigger` (when `spec.trigger.enabled` is true) that re-runs the workflow whenever the referenced agent is redeployed
+
+Field-level details live in xref:testbench::reference.adoc[Reference].
+
 == Pipeline Overview
 
-The Testbench operates as a sequential 4-phase pipeline. Each phase reads input from the previous phase's output via a shared data volume.
+The reconciled `TestWorkflow` runs a sequential 5-phase pipeline. Each phase reads input from the previous phase's output via a shared data volume.
 
 [plantuml, pipeline-overview, format="svg"]
 ----
@@ -21,11 +33,11 @@ Lay_R(dataset, experiment)
 Lay_R(experiment, evaluation)
 
 System_Boundary(testbench, "Testbench Pipeline") {
-    Container(setup, "Phase 1: Setup", "Python", "Downloads dataset from S3/MinIO")
+    Container(setup, "Phase 1: Setup", "Python", "Downloads dataset from S3/MinIO,\nHTTP, or inline ConfigMap")
     Container(run, "Phase 2: Run", "Python", "Queries agent via A2A protocol\nand records responses")
     Container(evaluate, "Phase 3: Evaluate", "Python", "Calculates metrics using\nLLM-as-a-judge")
     Container(publish, "Phase 4: Publish", "Python", "Exports evaluation metrics\nvia OTLP")
-    Container(visualize, "Optional: Visualize", "Python", "Generates self-contained\nHTML dashboard")
+    Container(visualize, "Phase 5: Visualize", "Python", "Generates self-contained\nHTML dashboard artifact")
 }
 
 setup -[hidden]r-> run
@@ -57,12 +69,13 @@ Rel_U(visualize, evaluation, "reads")
 
 == Phase 1: Setup
 
-**Purpose**: Downloads a test dataset from S3/MinIO.
+**Purpose**: Materialises a test dataset on the shared data volume.
 
 **Processing**:
 
-. Downloads the dataset file
-. Writes the output to the shared data volume
+. Resolves the dataset source from the Experiment: inline (mounted ConfigMap), HTTP URL, or S3/MinIO object
+. Parses CSV, JSON, or Parquet input into the canonical `Experiment` JSON model
+. Writes `data/datasets/experiment.json` to the shared data volume
 
 == Phase 2: Run
 
@@ -105,9 +118,9 @@ Rel_U(visualize, evaluation, "reads")
 ** `user_input_truncated` -- first 50 characters of user input
 . Flushes all metrics to ensure immediate export
 
-== Optional: Visualize
+== Phase 5: Visualize
 
-**Purpose**: Generates a self-contained HTML dashboard from evaluation results.
+**Purpose**: Generates a self-contained HTML dashboard from evaluation results and stores it as a Testkube workflow artifact.
 
 **Features**:
 

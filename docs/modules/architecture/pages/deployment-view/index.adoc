@@ -1,15 +1,41 @@
 = Deployment View
 
-== Helm Chart
+== Installation Artifact
 
-The Testbench is packaged as a Helm chart that deploys Testkube resources into a target cluster.
+Testbench is shipped as a single bundled manifest (`install.yaml`) published with each GitHub release. Applying it deploys:
 
-=== Container Image
+* The Testbench operator (Deployment + RBAC + leader election lease) into the `testbench-operator-system` namespace
+* The `Experiment` custom resource definition (`testbench.agentic-layer.ai/v1alpha1`), cluster-scoped
+* Five `TestWorkflowTemplate` resources (`setup-template`, `run-template`, `evaluate-template`, `publish-template`, `visualize-template`) in the `testkube` namespace
+* A `grafana-testkube-dashboard` ConfigMap in the `monitoring` namespace, picked up by the Grafana sidecar
 
-All phases share a single Docker image by default. The specific phase is selected via command arguments passed by each template. This keeps deployment simple -- one image to build, tag, and distribute.
+Customisation is performed via Kustomize overlays against the released `install.yaml` (for example, to override the image tag or relocate the dashboard ConfigMap). The previously published Helm chart is deprecated.
 
-Each step references its own container image via the template's `image` parameter, so teams can override individual steps with custom images when needed.
+== Runtime Topology
+
+[cols="2,3"]
+|===
+| Namespace | Contents
+
+| `testbench-operator-system`
+| Operator controller manager reconciling `Experiment` resources.
+
+| `testkube`
+| Testkube controller, the five `TestWorkflowTemplate` resources, the generated `TestWorkflow` and dataset `ConfigMap` per `Experiment`, and any `TestTrigger` the operator creates for event-driven re-runs.
+
+| Target agent namespace
+| The `Agent` resource referenced by `spec.agentRef`. The operator resolves its A2A endpoint and injects it into the Run phase.
+
+| `monitoring` (or wherever Grafana lives)
+| OTLP collector receiving published metrics and the Grafana dashboard ConfigMap.
+|===
+
+== Container Image
+
+All five phases share a single Docker image (`ghcr.io/agentic-layer/testbench/testworkflows`). Each `TestWorkflowTemplate` selects its phase via command arguments, keeping the build and distribution surface to a single image.
+
+Each template exposes its `image` parameter, so individual phases can be overridden with custom images when needed (typically only the evaluate phase, for custom metric frameworks).
 
 == Workflow Composition
 
-A `TestWorkflow` CRD composes the templates into a complete evaluation pipeline. Each template runs as a separate step within the workflow, sharing a volume for inter-phase data passing.
+For each `Experiment`, the operator generates one `TestWorkflow` in the `testkube` namespace that composes the five templates via Testkube's `use` mechanism. All steps share a single `emptyDir` volume at `/app/data`, which is how intermediate JSON files are passed between phases. Workflow pods are stateless; persistence (artifacts, execution history) is provided by Testkube.

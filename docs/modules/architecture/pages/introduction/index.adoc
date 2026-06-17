@@ -4,18 +4,18 @@
 
 The Testbench is a Kubernetes-native evaluation system that measures the quality of AI agents using pluggable evaluation framework adapters. It executes test datasets against agents via the A2A (Agent-to-Agent) protocol and publishes evaluation metrics through OTLP to an observability backend.
 
-The system operates as a sequential 4-phase pipeline:
+Users describe a test run as an `Experiment` custom resource. The Testbench operator reconciles each `Experiment` into a Testkube `TestWorkflow` that executes a sequential 5-phase pipeline:
 
-. **Setup** -- Download a test dataset
+. **Setup** -- Download or materialise a test dataset
 . **Run** -- Execute queries against an agent under test via A2A protocol
 . **Evaluate** -- Calculate metrics using an LLM-as-a-judge approach
 . **Publish** -- Send evaluation results to an OTLP-compatible observability backend
-
-An optional **Visualize** phase generates a self-contained HTML dashboard for local viewing and sharing.
+. **Visualize** -- Generate a self-contained HTML dashboard as a workflow artifact
 
 == Key Features
 
-* **4-phase sequential pipeline** with well-defined intermediate data formats between phases
+* **Experiment CRD as the user-facing API** -- a single YAML defines the agent under test, the dataset, the metrics, and optional triggers/schedules
+* **5-phase sequential pipeline** with well-defined intermediate data formats between phases
 * **A2A protocol integration** -- evaluates any agent that implements the A2A JSON-RPC specification
 * **Single-turn and multi-turn conversation support** -- automatic detection based on dataset structure
 * **Configurable evaluation metrics** -- JSON/YAML configuration files with pluggable framework adapters
@@ -47,5 +47,5 @@ The Testbench is a component of the Agentic Layer platform, providing automated 
 | Full traceability from test execution to evaluation results via OpenTelemetry
 
 | Portability
-| Single Docker image for all phases, deployable via Helm chart to any Kubernetes cluster
+| Single Docker image for all phases, installed via a bundled `install.yaml` manifest into any Kubernetes cluster with Testkube
 |===
