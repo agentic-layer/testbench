@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-gateway
+---
+apiVersion: runtime.agentic-layer.ai/v1alpha1
+kind: AgentGateway
+metadata:
+  name: agent-gateway
+  namespace: agent-gateway
+spec:
+  env:
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://lgtm.monitoring.svc.cluster.local:4318"
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: "http/json"

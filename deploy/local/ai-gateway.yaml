@@ -1,0 +1,25 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-gateway
+---
+apiVersion: runtime.agentic-layer.ai/v1alpha1
+kind: AiGateway
+metadata:
+  name: ai-gateway
+  namespace: ai-gateway
+spec:
+  aiGatewayClassName: litellm
+  env:
+    - name: OTEL_SERVICE_NAME
+      value: "ai-gateway"
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://lgtm.monitoring.svc.cluster.local:4318"
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: "http/json"
+  aiModels:
+    - name: gemini-3.1-flash-lite
+      provider: gemini
+    - name: gemini-3.5-flash
+      provider: gemini

@@ -11,28 +11,50 @@ spec:
     name: ai-gateway
     namespace: ai-gateway
   env:
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: "http/protobuf"
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
-      valueFrom:
-        configMapKeyRef:
-          name: otel-config
-          key: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://lgtm.monitoring.svc.cluster.local:4318"
   dataset:
     inline:
-      llmAsAJudgeModel: gemini-2.5-flash-lite
+      llmAsAJudgeModel: gemini-3.1-flash-lite
       defaultThreshold: 0.9
       scenarios:
         - name: "Weather in New York"
           steps:
             - input: "What is the weather like in New York right now?"
               reference:
+                response: "The weather in New York is currently sunny with a temperature of 25°C or 77°F."
                 toolCalls:
                   - name: get_weather
                     args:
                       city: "New York"
                 topics:
                   - weather
+                retrievedContexts:
+                  - "The weather in New York is currently sunny with a temperature of 25°C"
               metrics:
-                - metricName: AgentGoalAccuracyWithoutReference
+                - metricName: AgentGoalAccuracy
+                - metricName: ToolCallAccuracy
+                - metricName: TopicAdherence
+                - metricName: Faithfulness
+        - name: "Weather in Mordor"
+          steps:
+            - input: "What is the weather like in Mordor right now?"
+              reference:
+                response: "Mordor is a fictional location from J.R.R. Tolkien's Middle-earth and does not have real weather information available."
+                toolCalls:
+                  - name: get_weather
+                    args:
+                      city: "Mordor"
+                topics:
+                  - weather
+                retrievedContexts:
+                  - "Weather information for 'Mordor' is not available."
+              metrics:
+                - metricName: AgentGoalAccuracy
+                - metricName: ToolCallAccuracy
+                - metricName: TopicAdherence
+                - metricName: Faithfulness
   trigger:
     enabled: true
-    concurrencyPolicy: Allow

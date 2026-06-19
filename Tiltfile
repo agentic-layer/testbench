@@ -19,15 +19,27 @@ agent_runtime_install(version='0.28.1')
 
 v1alpha1.extension(name='ai-gateway-litellm', repo_name='agentic-layer', repo_path='ai-gateway-litellm')
 load('ext://ai-gateway-litellm', 'ai_gateway_litellm_install')
-ai_gateway_litellm_install(version='0.10.0')
+ai_gateway_litellm_install(version='0.10.0', instance=False)
 
 v1alpha1.extension(name='agent-gateway-krakend', repo_name='agentic-layer', repo_path='agent-gateway-krakend')
 load('ext://agent-gateway-krakend', 'agent_gateway_krakend_install')
-agent_gateway_krakend_install(version='0.7.0')
+agent_gateway_krakend_install(version='0.7.0', instance=False)
 
 v1alpha1.extension(name='tool-gateway-agentgateway', repo_name='agentic-layer', repo_path='tool-gateway-agentgateway')
 load('ext://tool-gateway-agentgateway', 'tool_gateway_agentgateway_install')
 tool_gateway_agentgateway_install(version='0.5.0', instance=False)
+
+# Secrets for LLM API keys
+google_api_key = os.environ.get('GOOGLE_API_KEY', '')
+if not google_api_key:
+    warn('GOOGLE_API_KEY environment variable is not set. Please set it in your shell or .env file.')
+
+load('ext://secret', 'secret_from_dict')
+k8s_yaml(secret_from_dict(
+    name = "api-key-secrets",
+    namespace = "ai-gateway",
+    inputs = { "GEMINI_API_KEY": google_api_key }
+))
 
 # Pre-create testkube namespace to avoid race condition with kustomize resources
 k8s_yaml(blob('''
@@ -71,7 +83,8 @@ k8s_yaml(kustomize('operator/config/default'))
 # Apply local development manifests
 k8s_yaml(kustomize('deploy/local'))
 
-k8s_resource('ai-gateway', port_forwards=['11001:80'])
+k8s_resource('ai-gateway', labels=['agentic-layer'], resource_deps=['agent-runtime'], port_forwards='11001:80')
+k8s_resource('agent-gateway', labels=['agentic-layer'], resource_deps=['agent-runtime'], port_forwards='11002:8080')
 k8s_resource('agent-runtime-configuration', resource_deps=['agent-runtime'])
 k8s_resource('weather-agent', port_forwards='11010:8000', labels=['agents'], resource_deps=['agent-runtime'])
 k8s_resource('tool-gateway', labels=['agentic-layer'], resource_deps=['agent-runtime'], port_forwards='11005:80')

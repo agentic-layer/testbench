@@ -15,7 +15,7 @@ spec:
   description: "Agent to answer questions about the time and weather in a city."
   instruction: |-
     You are a helpful agent who can answer user questions about the time and weather in a city.
-  model: "gemini/gemini-2.5-flash"
+  model: "gemini/gemini-3.5-flash"
   aiGatewayRef:
     name: ai-gateway
     namespace: ai-gateway
@@ -31,7 +31,7 @@ spec:
   env:
     - name: OTEL_SERVICE_NAME
       value: "weather-agent"
-  envFrom:
-    - configMapRef:
-        name: otel-config
-        optional: true
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: "http/protobuf"
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://lgtm.monitoring.svc.cluster.local:4318"

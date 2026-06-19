@@ -4,7 +4,7 @@ metadata:
   name: agent-runtime-configuration
   namespace: agent-runtime-operator-system
 spec:
-  defaultFramework: google-adk
+  defaultFramework: msaf
   agentTemplateImages:
     googleAdk: "ghcr.io/agentic-layer/agent-template-adk:0.9.2"
     msaf: "ghcr.io/agentic-layer/agent-template-msaf:0.4.2"
