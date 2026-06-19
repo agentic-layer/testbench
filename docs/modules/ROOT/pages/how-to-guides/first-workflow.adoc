@@ -114,6 +114,10 @@ The following table lists commonly used metrics provided by RAGAS, the default f
 | `TopicAdherence`
 | Whether the response stays on the specified topics
 | `reference.topics`
+
+| `Faithfulness`
+| Whether the response is grounded in the retrieved context (no hallucination)
+| `reference.retrievedContexts`
 |===
 
 == Step 2: Verify the generated resources

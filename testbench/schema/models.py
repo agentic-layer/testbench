@@ -24,6 +24,7 @@ class Reference(BaseModel):
     response: str | None = None
     tool_calls: list[ToolCall] | None = None
     topics: list[str] | None = None
+    retrieved_contexts: list[str] | None = None
 
 
 class Turn(BaseModel):

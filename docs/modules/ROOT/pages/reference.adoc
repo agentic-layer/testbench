@@ -202,7 +202,7 @@ Credentials are supplied through `spec.env` (typically `MINIO_ENDPOINT`, `MINIO_
 | `customValues`
 | object (free-form)
 | no
-| Arbitrary key/value pairs forwarded to metric callables (e.g. `retrievedContexts` for RAGAS context metrics). Schemaless; preserved unchanged.
+| Arbitrary key/value pairs forwarded to metric callables for adapter-specific inputs. Schemaless; preserved unchanged. (For RAGAS context metrics, supply retrieved passages via `reference.retrievedContexts` instead.)
 
 | `metrics`
 | `[]Metric`
@@ -228,6 +228,10 @@ Credentials are supplied through `spec.env` (typically `MINIO_ENDPOINT`, `MINIO_
 | `topics`
 | `[]string`
 | Expected topics the response should cover. Used by `TopicAdherence`.
+
+| `retrievedContexts`
+| `[]string`
+| Context passages retrieved by the agent's RAG pipeline. Used by RAGAS context metrics such as `Faithfulness`, `ContextPrecision`, and `ContextRecall`.
 |===
 
 [[toolcall]]

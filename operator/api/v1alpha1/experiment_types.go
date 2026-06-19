@@ -108,6 +108,10 @@ type Reference struct {
 	// Expected topics to be covered
 	// +optional
 	Topics []string `json:"topics,omitempty"`
+
+	// Retrieved contexts supplied to context-based metrics (e.g., RAGAS Faithfulness)
+	// +optional
+	RetrievedContexts []string `json:"retrievedContexts,omitempty"`
 }
 
 // Metric defines a single metric evaluation configuration

@@ -101,8 +101,9 @@ var _ = Describe("Experiment Controller", func() {
 										{
 											Input: "What is the weather?",
 											Reference: &testbenchv1alpha1.Reference{
-												Response: "It is sunny",
-												Topics:   []string{"weather"},
+												Response:          "It is sunny",
+												Topics:            []string{"weather"},
+												RetrievedContexts: []string{"New York is sunny, 25C."},
 												ToolCalls: []testbenchv1alpha1.ToolCall{
 													{
 														Name: "get_weather",
@@ -147,6 +148,7 @@ var _ = Describe("Experiment Controller", func() {
 			Expect(expJSON.Scenarios[0].Steps[0].Reference).NotTo(BeNil())
 			Expect(expJSON.Scenarios[0].Steps[0].Reference.Response).To(Equal("It is sunny"))
 			Expect(expJSON.Scenarios[0].Steps[0].Reference.Topics).To(ConsistOf("weather"))
+			Expect(expJSON.Scenarios[0].Steps[0].Reference.RetrievedContexts).To(ConsistOf("New York is sunny, 25C."))
 			Expect(expJSON.Scenarios[0].Steps[0].Reference.ToolCalls).To(HaveLen(1))
 			Expect(expJSON.Scenarios[0].Steps[0].Reference.ToolCalls[0].Name).To(Equal("get_weather"))
 			Expect(expJSON.Scenarios[0].Steps[0].Metrics).To(HaveLen(1))

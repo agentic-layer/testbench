@@ -91,6 +91,37 @@ class TestRagasMetricCallable:
         assert result.score == 0.85
         mock_metric.ascore.assert_called_once()
 
+    def test_build_params_maps_reference_retrieved_contexts(self):
+        """retrieved_contexts on the reference is forwarded to RAGAS context metrics."""
+        from testbench.metrics.ragas.adapter import RagasMetricCallable
+
+        mock_metric = MagicMock()
+        mock_metric.name = "Faithfulness"
+
+        callable_ = RagasMetricCallable(mock_metric)
+
+        step = ExecutedStep(
+            input="What is the weather in New York?",
+            reference=Reference(retrieved_contexts=["New York is sunny, 25C."]),
+        )
+
+        params = callable_._build_ragas_params(step)
+        assert params["retrieved_contexts"] == ["New York is sunny, 25C."]
+
+    def test_build_params_omits_retrieved_contexts_when_absent(self):
+        """No retrieved_contexts key is emitted when the reference does not provide them."""
+        from testbench.metrics.ragas.adapter import RagasMetricCallable
+
+        mock_metric = MagicMock()
+        mock_metric.name = "AgentGoalAccuracyWithoutReference"
+
+        callable_ = RagasMetricCallable(mock_metric)
+
+        step = ExecutedStep(input="What is the weather?", reference=Reference(response="Expected"))
+
+        params = callable_._build_ragas_params(step)
+        assert "retrieved_contexts" not in params
+
     @pytest.mark.asyncio
     async def test_callable_multi_turn(self):
         """RagasMetricCallable handles multi-turn steps by converting to LangChain messages."""

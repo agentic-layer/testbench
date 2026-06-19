@@ -72,6 +72,8 @@ class RagasMetricCallable:
                 params["reference_tool_calls"] = self._map_reference_tool_calls(sample.reference.tool_calls)
             if sample.reference.topics:
                 params["reference_topics"] = sample.reference.topics
+            if sample.reference.retrieved_contexts:
+                params["retrieved_contexts"] = sample.reference.retrieved_contexts
 
         return params
 

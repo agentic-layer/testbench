@@ -172,6 +172,12 @@ spec:
                                       response:
                                         description: Expected response text
                                         type: string
+                                      retrievedContexts:
+                                        description: Retrieved contexts supplied to
+                                          context-based metrics (e.g., RAGAS Faithfulness)
+                                        items:
+                                          type: string
+                                        type: array
                                       toolCalls:
                                         description: Expected tool calls
                                         items:

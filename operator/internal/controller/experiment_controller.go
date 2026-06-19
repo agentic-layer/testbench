@@ -85,9 +85,10 @@ type stepJSON struct {
 }
 
 type referenceJSON struct {
-	Response  string         `json:"response,omitempty"`
-	ToolCalls []toolCallJSON `json:"tool_calls,omitempty"`
-	Topics    []string       `json:"topics,omitempty"`
+	Response          string         `json:"response,omitempty"`
+	ToolCalls         []toolCallJSON `json:"tool_calls,omitempty"`
+	Topics            []string       `json:"topics,omitempty"`
+	RetrievedContexts []string       `json:"retrieved_contexts,omitempty"`
 }
 
 type toolCallJSON struct {
@@ -331,8 +332,9 @@ func (r *ExperimentReconciler) convertStep(step testbenchv1alpha1.Step) stepJSON
 	sj := stepJSON{Input: step.Input}
 	if step.Reference != nil {
 		ref := &referenceJSON{
-			Response: step.Reference.Response,
-			Topics:   step.Reference.Topics,
+			Response:          step.Reference.Response,
+			Topics:            step.Reference.Topics,
+			RetrievedContexts: step.Reference.RetrievedContexts,
 		}
 		for _, tc := range step.Reference.ToolCalls {
 			ref.ToolCalls = append(ref.ToolCalls, toolCallJSON{
